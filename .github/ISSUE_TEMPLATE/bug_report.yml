@@ -1,0 +1,37 @@
+name: Bug Report
+description: File a bug report or error trace
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for taking the time to report a bug in VERITAS!
+  - type: input
+    id: system
+    attributes:
+      label: System & Kernel Information
+      description: What Linux distro and kernel version are you running? (e.g. Kali Linux / 6.5.0-kali3-amd64)
+      placeholder: "e.g. Kali 2024.1 / Kernel 6.6.9"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Wireless Adapter / Chipset
+      description: What wireless card and driver are you using? (e.g. Alfa AWUS036ACH / rtl8812au)
+      placeholder: "e.g. Alfa AWUS036ACH (rtl8812au)"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description & Steps to Reproduce
+      description: Describe what happened, expected behavior, and step-by-step instructions to reproduce.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal Output / Error Logs
+      description: Paste any compiler error messages, sanitizer tracebacks, or log outputs.
+      render: shell

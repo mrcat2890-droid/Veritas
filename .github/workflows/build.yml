@@ -1,0 +1,36 @@
+# Build & Test Workflow
+name: Build and Verify
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libpcap-dev
+
+    - name: Build Release Binary
+      run: |
+        make clean
+        make
+
+    - name: Verify Binary Execution
+      run: |
+        ./veritas --help
+
+    - name: Build with Sanitizers (ASan + UBSan)
+      run: |
+        make clean
+        gcc -Wall -Wextra -g -O0 -pthread -std=c11 -fsanitize=address,undefined -o veritas_sanitizer veritas.c -lm
+        ./veritas_sanitizer --help

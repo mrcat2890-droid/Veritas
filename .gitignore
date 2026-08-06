@@ -1,0 +1,24 @@
+# Binaries & Object files
+*.o
+*.so
+*.dylib
+veritas
+veritas_dbg
+veritas_sanitizer
+veritas_test
+
+# Temporary scan & PMKID logs
+/tmp/vrt_scan_*
+/tmp/veritas_*
+*.22000
+
+# Editor & System files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Stats outputs
+*_stats.json
+stats.json
