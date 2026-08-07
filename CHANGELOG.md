@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3.0] - 2026-08-07
+
+### Added
+- **Stress Test / Mass Injection Mode (mdk4-style)**: 
+  - `--stress`: New mode to passively capture all 802.11 beacons in range and build a live AP pool (`stress_pool_t`).
+  - `--5ghz`: Optional flag to include 5GHz channel hopping alongside 2.4GHz spectrum.
+  - Multi-target injection engine (`stress_injector_thread`) building frames on-the-fly for all discovered APs.
+  - Automatic channel hopper thread (`stress_hopper_thread`) with dwell control per attack mode.
+  - Dedicated real-time TUI display showing discovered APs, per-AP packet transmission stats, channel distribution, and throughput metrics.
+  - Auto-aging mechanism (`STRESS_AGE_SEC`) to clean inactive APs from the target pool.
+
+---
+
 ## [4.2.0] - 2026-08-06
 
 ### Added
