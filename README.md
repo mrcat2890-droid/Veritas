@@ -6,7 +6,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(AF__PACKET)-red.svg)](https://kernel.org)
 [![Language](https://img.shields.io/badge/Language-C11%20%2F%20POSIX-00599C.svg)](veritas.c)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](Makefile)
-[![Version](https://img.shields.io/badge/Version-4.1.0--Precision-cyan.svg)](veritas.c)
+[![Version](https://img.shields.io/badge/Version-4.2.0--Precision-cyan.svg)](veritas.c)
 
 **VERITAS** (Channel Switch Announcement Attack & Audit Framework) is a ultra-high performance, native C11 wireless security assessment tool designed for Wi-Fi auditing, 802.11h CSA manipulation, and rogue AP deployment. Rebuilt from the ground up to replace heavy Python frameworks, VERITAS delivers bare-metal socket injection speeds capable of pushing over 5,000 packets per second (PPS) while maintaining sub-millisecond PID rate control.
 
@@ -16,7 +16,7 @@
 
 - **🚀 Ultra-High Throughput Injection**: Built on raw `AF_PACKET` sockets with `sendmmsg()` batching (up to 16 packets per syscall) and a 2MB kernel TX buffer tuning (`SO_SNDBUF`).
 - **🔒 Lock-Free Threading Engine**: Concurrent multi-vector injection powered by `<stdatomic.h>` and per-thread socket descriptors—zero lock contention on hot paths.
-- **🎯 14 Specialized Attack Vectors**:
+- **🎯 15 Specialized Attack Vectors**:
   - `CSA Beacon Flood` (IEEE 802.11h Channel Switch Announcement)
   - `Quiet Element DoS` (IEEE 802.11h Quiet IE continuous quiet period)
   - `Bidirectional Deauth Flood` (Interleaved AP→Client and Client→AP deauthentication)
@@ -29,6 +29,7 @@
   - `Probe Response CSA Spoofing` (Unicast & Broadcast)
   - `DELBA (Delete Block Ack) DoS`
   - `Evil Twin Rogue AP Handoff`
+  - `FragAttack Injection` (CVE-2020-24588 — Fragment header manipulation for plaintext data injection without Wi-Fi password)
 - **🌐 Dual-Band (2.4GHz / 5GHz) & DFS Aware**: Fully supports 5GHz high-band channels (36–165), 802.11ac VHT hostapd configurations, and detects DFS channels (52–64, 100–144).
 - **⏱️ PID-Controlled Sliding Window Rate Control**: Per-thread rolling window PID rate controller ensures smooth transmission matching user aggressiveness modes (`STEALTH` ~20 PPS to `INSANE` ~5000 PPS).
 - **🤖 Scriptable & Automated**: Full JSON config automation support for headless auditing and red team operations.

