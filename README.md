@@ -1,6 +1,6 @@
-# VERITAS v4.1 — Precision 802.11 CSA & Wi-Fi Audit Framework
+# VERITAS v4.1 — Kerangka Kerja Audit Keamanan & Pengujian Presisi Wi-Fi 802.11 CSA
 
-![VERITAS Banner](assets/banner.png)
+![Banner VERITAS](assets/banner.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(AF__PACKET)-red.svg)](https://kernel.org)
@@ -16,7 +16,7 @@
 
 - **🚀 Ultra-High Throughput Injection**: Built on raw `AF_PACKET` sockets with `sendmmsg()` batching (up to 16 packets per syscall) and a 2MB kernel TX buffer tuning (`SO_SNDBUF`).
 - **🔒 Lock-Free Threading Engine**: Concurrent multi-vector injection powered by `<stdatomic.h>` and per-thread socket descriptors—zero lock contention on hot paths.
-- **🎯 15 Specialized Attack Vectors**:
+- **🎯 14 Specialized Attack Vectors**:
   - `CSA Beacon Flood` (IEEE 802.11h Channel Switch Announcement)
   - `Quiet Element DoS` (IEEE 802.11h Quiet IE continuous quiet period)
   - `Bidirectional Deauth Flood` (Interleaved AP→Client and Client→AP deauthentication)
@@ -29,86 +29,89 @@
   - `Probe Response CSA Spoofing` (Unicast & Broadcast)
   - `DELBA (Delete Block Ack) DoS`
   - `Evil Twin Rogue AP Handoff`
-  - `FragAttack Injection` (CVE-2020-24588 — Fragment header manipulation for plaintext data injection without Wi-Fi password)
 - **🌐 Dual-Band (2.4GHz / 5GHz) & DFS Aware**: Fully supports 5GHz high-band channels (36–165), 802.11ac VHT hostapd configurations, and detects DFS channels (52–64, 100–144).
 - **⏱️ PID-Controlled Sliding Window Rate Control**: Per-thread rolling window PID rate controller ensures smooth transmission matching user aggressiveness modes (`STEALTH` ~20 PPS to `INSANE` ~5000 PPS).
 - **🤖 Scriptable & Automated**: Full JSON config automation support for headless auditing and red team operations.
 
 ---
 
-## 📋 Prerequisites & System Requirements
+## 📋 Prasyarat & Persyaratan Sistem
 
-- **OS**: Linux kernel 5.14+ (requires `AF_PACKET` raw socket support & `PACKET_IGNORE_OUTGOING`)
-- **Privileges**: `root` / `CAP_NET_RAW`
-- **Hardware**: Wireless Network Interface Card (NIC) supporting **Monitor Mode** and **Packet Injection** (e.g., Alfa AWUS036ACH, Atheros AR9271, Mt7612u)
-- **System Tool Dependencies**:
-  - `iw` (Required for channel switching)
-  - `airodump-ng` (Optional: required for automated target scanning)
-  - `hostapd` (Optional: required for Evil Twin Rogue AP)
+### Minimum Sistem
+- **Sistem Operasi**: Linux Kernel 5.14+ (Mendukung `AF_PACKET` raw socket & flag `PACKET_IGNORE_OUTGOING`).
+- **Hak Akses**: Pengguna `root` atau kapabilitas POSIX `CAP_NET_RAW`.
+- **Perangkat Keras**: Kartu Jaringan Nirkabel (NIC) yang mendukung **Monitor Mode** dan **Packet Injection** (Contoh: Alfa AWUS036ACH, Atheros AR9271, MediaTek MT7612U).
+
+### Dependensi Perkakas Sistem
+- `iw`: Diperlukan untuk perpindahan frekuensi/saluran nirkabel.
+- `airodump-ng` (*Opsional*): Diperlukan untuk pemindaian target otomatis.
+- `hostapd` (*Opsional*): Diperlukan dalam skenario *Evil Twin Rogue AP*.
 
 ---
 
-## 🛠️ Installation & Building
+## 🛠️ Instalasi & Kompilasi
 
-Clone the repository and compile using GCC:
+Clone repositori dan lakukan kompilasi menggunakan `gcc` melalui `make`:
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/veritas-csa-framework.git
+# Clone repositori proyek
+git clone https://github.com/username-anda/veritas-csa-framework.git
 cd veritas-csa-framework
 
-# Compile release binary
+# Kompilasi biner produksi (Optimasi Release)
 make
 
-# Optional: Install system-wide to /usr/local/bin
+# Opsional: Instalasi secara global ke sistem (/usr/local/bin)
 sudo make install
 ```
 
-### Build Targets
+### Perintah Build (`Makefile`)
 
-| Command | Description |
+| Perintah | Deskripsi |
 | :--- | :--- |
-| `make` | Compiles optimized production binary (`./veritas`) |
-| `make debug` | Compiles with debug symbols, AddressSanitizer & UndefinedBehaviorSanitizer (`./veritas_dbg`) |
-| `make clean` | Removes build artifacts |
-| `make install` | Installs `./veritas` to `/usr/local/bin` |
-| `make uninstall` | Removes `/usr/local/bin/veritas` |
+| `make` | Mengompilasi biner produksi yang dioptimalkan (`./veritas`) |
+| `make debug` | Kompilasi dengan simbol debug, AddressSanitizer & UndefinedBehaviorSanitizer (`./veritas_dbg`) |
+| `make clean` | Menghapus seluruh artefak kompilasi |
+| `make install` | Menginstal biner `./veritas` ke direktori `/usr/local/bin` |
+| `make uninstall` | Menghapus biner dari `/usr/local/bin/veritas` |
 
 ---
 
-## 📖 Usage & Examples
+## 📖 Panduan Penggunaan
 
-### 1. Interactive CLI Mode
+### 1. Mode CLI Interaktif
 
-Launch VERITAS interactively to scan for targets, select attack vectors, and adjust aggressiveness:
+Jalankan VERITAS secara interaktif untuk memindai jaringan target, memilih vektor pengujian, dan menyesuaikan tingkat agresivitas:
 
 ```bash
 sudo ./veritas
 ```
 
-#### Command-Line Flags (Interactive Enhancements)
+#### Bendera Perintah (Command-Line Flags)
 
 ```bash
-sudo ./veritas [OPTIONS]
+sudo ./veritas [OPSI]
 
-Options:
-  --pmkid         Enable automatic PMKID handshake capture to /tmp/veritas_pmkid_*.22000
-  --ids-bypass    Enable jittered packet timing evasion to bypass WIDS/WIPS
-  --dual <iface>  Enable dual-radio operation using a second monitor interface
-  --rogue         Automatically spawn a Rogue AP on the target redirect channel
-  --stats <file>  Write live JSON telemetry metrics to a file
-  --help          Show help screen and detailed parameters
+Opsi Utama:
+  --pmkid         Mengaktifkan penangkapan handshake PMKID otomatis ke /tmp/veritas_pmkid_*.22000
+  --ids-bypass    Mengaktifkan manipulasi jeda waktu (jitter timing) untuk menghindari deteksi WIDS/WIPS
+  --dual <iface>  Mengaktifkan mode dual-radio menggunakan antarmuka monitor sekunder
+  --rogue         Menjalankan Rogue AP otomatis pada saluran pengalihan target
+  --stats <file>  Menulis telemetry JSON secara langsung (live metric) ke file tujuan
+  --help          Menampilkan bantuan dan parameter detail
 ```
 
-### 2. Scripted / Automated Mode (JSON Configuration)
+---
 
-Run headless security audits using a JSON configuration file:
+### 2. Mode Otomatis / Terjadwal (Konfigurasi JSON)
+
+Pengujian keamanan dapat dijalankan secara terotomatisasi (*headless mode*) dengan menyertakan file konfigurasi berformat JSON:
 
 ```bash
 sudo ./veritas --script examples/csa_attack.json
 ```
 
-#### Example Configuration File (`config.json`)
+#### Contoh Konfigurasi JSON (`config.json`)
 
 ```json
 {
@@ -135,9 +138,9 @@ sudo ./veritas --script examples/csa_attack.json
 
 ---
 
-## 🔬 Attack Mechanics & 802.11h CSA Mechanics
+## 🔬 Mekanisme Teknis IEEE 802.11h CSA
 
-IEEE 802.11h defines the **Channel Switch Announcement (CSA)** element (Element ID 37), enabling an Access Point to notify connected clients that it is changing its operating channel. 
+Standar IEEE 802.11h mendefinisikan **Channel Switch Announcement (CSA)** melalui Elemen Informasi ID 37. Fitur ini dirancang agar *Access Point* (AP) dapat memberitahukan seluruh klien yang terhubung bahwa AP akan berpindah saluran frekuensi operasi secara teratur.
 
 ```
   802.11 Management Frame (Beacon / Action / Probe Response)
@@ -146,40 +149,53 @@ IEEE 802.11h defines the **Channel Switch Announcement (CSA)** element (Element 
  ├─────────────────────────────────────────────────────────────┤
  │ SSID Element (ID 0)                                         │
  ├─────────────────────────────────────────────────────────────┤
- │ DS Parameter Set (ID 3) -> Current Channel                  │
+ │ DS Parameter Set (ID 3) -> Saluran Saat Ini                 │
  ├─────────────────────────────────────────────────────────────┤
  │ CSA Element (ID 37)                                         │
- │  ├── Switch Mode (1 byte)  : 1 (Block TX until switch)      │
- │  ├── New Channel (1 byte)  : Target Channel (e.g. Ch 36)    │
- │  └── Switch Count (1 byte): 0 (Immediate switch)            │
+ │  ├── Switch Mode (1 byte)  : 1 (Hentikan TX hingga pindah)   │
+ │  ├── New Channel (1 byte)  : Saluran Tujuan (misal Ch 36)   │
+ │  └── Switch Count (1 byte): 0 (Pindah seketika)             │
  └─────────────────────────────────────────────────────────────┘
 ```
 
-VERITAS injects crafted CSA elements into legitimate management traffic streams, forcing client stations to immediately disconnect from the target AP and jump to a rogue channel or an attacker-controlled Evil Twin Access Point without triggering standard deauthentication alarms on legacy WIDS.
+VERITAS menyuntikkan elemen CSA yang telah dikonstruksi presisi ke dalam alur *management frame* legitimasi. Hal ini memaksa perangkat klien untuk segera memutuskan koneksi dari AP asli dan berpindah ke saluran baru atau *Access Point* tiruan tanpa memicu peringatan pemutusan jaringan biasa (*standard deauthentication alerts*) pada sistem WIDS konvensional.
 
 ---
 
-## 📊 Performance Benchmark
+## 📊 Hasil Pengujian & Benchmark Kinerja
 
-Tested on Intel Core i7-1185G7 with Alfa AWUS036ACH (Realtek RTL8812AU):
+*Diuji pada arsitektur Intel Core i7-1185G7 menggunakan adaptor Alfa AWUS036ACH (Chipset Realtek RTL8812AU):*
 
-| Mode | Target PPS | Actual TX PPS | CPU Usage | Context Switches / sec |
+| Mode Agresivitas | Target PPS | Realisasi TX PPS | Penggunaan CPU | Context Switches / detik |
 | :--- | :--- | :--- | :--- | :--- |
 | `STEALTH` | 20 | 20.1 | < 0.2% | ~20 |
 | `MEDIUM` | 200 | 199.8 | < 0.5% | ~180 |
 | `HIGH` | 500 | 499.5 | ~1.1% | ~450 |
-| `INSANE` | 5000 | 4982.0 | ~4.8% | ~350 (via `sendmmsg`) |
+| `INSANE` | 5000 | 4982.0 | ~4.8% | ~350 (Memanfaatkan `sendmmsg`) |
 
 ---
 
-## ⚠️ Disclaimer & Ethical Use Notice
+## 🛡️ Strategi Mitigasi & Pengerasan Keamanan (Defensive)
+
+Untuk melindungi infrastruktur nirkabel dari kerentanan manipulasi CSA dan *Rogue AP*:
+
+1. **Aktifkan Protected Management Frames (PMF / IEEE 802.11w)**:
+   - Wajibkan penggunaan WPA3 atau aktifkan opsi `ieee80211w=2` (Required) pada `hostapd` / pengontrol Wi-Fi perusahaan Anda. PMF mengenkripsi *management frames* seperti Deauth, Disassociation, dan CSA sehingga tidak dapat dipalsukan oleh pihak luar.
+2. **Implementasi WIDS/WIPS Modern**:
+   - Gunakan sistem deteksi nirkabel yang memantau anomali rasio transmisi *Beacon/Action Frame* dengan *Channel Switch Count* bernilai nol (0).
+3. **Validasi Saluran Otomatis di Sisi Klien**:
+   - Batasi respon otomatis perangkat klien terhadap perintah pemindahan saluran yang tidak terotentikasi.
+
+---
+
+## ⚠️ Penyangkalan Etis & Tanggung Jawab Hukum
 
 > [!CAUTION]
-> **VERITAS is developed exclusively for authorized security auditing, penetration testing, and academic research.**
-> Unauthorized access or disruption of wireless networks without prior explicit consent from the network owner is illegal under local, national, and international laws (such as the Computer Fraud and Abuse Act - CFAA). The developers assume no liability and are not responsible for any misuse, damage, or legal consequences caused by this software.
+> **VERITAS dikembangkan secara eksklusif untuk tujuan audit keamanan yang sah, pengujian penetrasi terotorisasi, dan riset akademis.**
+> Penggunaan perangkat lunak ini untuk mengakses atau mengganggu jaringan nirkabel tanpa izin tertulis dari pemilik aset adalah tindakan ilegal di bawah hukum nasional dan internasional (seperti UU ITE di Indonesia serta *Computer Fraud and Abuse Act* - CFAA di Amerika Serikat). Pengembang tidak bertanggung jawab atas segala bentuk penyalahgunaan, kerugian, atau konsekuensi hukum yang timbul dari penggunaan proyek ini.
 
 ---
 
-## 📄 License
+## 📄 Lisensi
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more information.
+Proyek ini didistribusikan di bawah lisensi **MIT License**. Lihat file [`LICENSE`](LICENSE) untuk informasi lebih rinci.
