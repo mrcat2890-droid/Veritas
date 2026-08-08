@@ -1,4 +1,4 @@
-# VERITAS v4.3 — Kerangka Kerja Audit Keamanan & Pengujian Presisi Wi-Fi 802.11 CSA
+# VERITAS v4.4 — Kerangka Kerja Audit Keamanan & Pengujian Presisi Wi-Fi 802.11 CSA
 
 ![Banner VERITAS](assets/banner.png)
 
@@ -6,9 +6,9 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(AF__PACKET)-red.svg)](https://kernel.org)
 [![Bahasa](https://img.shields.io/badge/Bahasa-C11%20%2F%20Python3-00599C.svg)](veritas.c)
 [![Status Kompilasi](https://img.shields.io/badge/Kompilasi-Berhasil-brightgreen.svg)](Makefile)
-[![Versi](https://img.shields.io/badge/Versi-4.3.1--Bugfix-cyan.svg)](veritas.c)
+[![Versi](https://img.shields.io/badge/Versi-4.4.0-cyan.svg)](veritas.c)
 
-**VERITAS** (*Channel Switch Announcement Attack & Audit Framework*) adalah perkakas evaluasi keamanan nirkabel berkinerja tinggi berbasis C11 murni dan Python 3. Perkakas ini dirancang khusus untuk audit jaringan Wi-Fi, manipulasi standar IEEE 802.11h CSA, penyerangan fragmen *FragAttack*, dan penyebaran Titik Akses Palsu (*Rogue Access Point*). Dibangun kembali dari awal untuk menggantikan kerangka kerja Python yang berat, VERITAS versi C11 mampu menyuntikkan paket data langsung ke soket mentah (*raw socket*) dengan kecepatan melebihi 5.000 paket per detik (PPS) serta didukung pengontrol laju presisi berakurasi sub-milidetik.
+**VERITAS** (*Channel Switch Announcement Attack & Audit Framework*) adalah perkakas evaluasi keamanan nirkabel berkinerja tinggi berbasis C11 murni dan Python 3. Perkakas ini dirancang khusus untuk audit jaringan Wi-Fi, manipulasi standar IEEE 802.11h CSA, penyerangan fragmen *FragAttack*, agresivitas kanal DFS (*Operating Channel Aggression*), dan penyebaran Titik Akses Palsu (*Rogue Access Point*). Dibangun kembali dari awal untuk menggantikan kerangka kerja Python yang berat, VERITAS versi C11 mampu menyuntikkan paket data langsung ke soket mentah (*raw socket*) dengan kecepatan melebihi 5.000 paket per detik (PPS) serta didukung pengontrol laju presisi berakurasi sub-milidetik.
 
 ---
 
@@ -16,7 +16,7 @@
 
 - **🚀 Injeksi Berkecepatan Tinggi**: Dibangun menggunakan soket mentah `AF_PACKET` dengan metode pengiriman massal `sendmmsg()` (hingga 16 paket per satu panggilan sistem/*syscall*) serta optimasi memori pemancar kernel hingga 2MB (`SO_SNDBUF`).
 - **🔒 Mesin Multithread Tanpa Pengunci (*Lock-Free Engine*)**: Eksekusi pengujian multi-vektor secara bersamaan ditenagai oleh `<stdatomic.h>` dan deskriptor soket per-utas (*per-thread*) untuk mencegah hambatan antrean memori.
-- **🎯 15 Vektor Serangan Khusus**:
+- **🎯 16 Vektor Serangan Khusus**:
   1. `CSA Beacon Flood`: Banjir *Beacon* pengalihan saluran IEEE 802.11h.
   2. `Quiet Element DoS`: Penghentian komunikasi nirkabel berbasis elemen *Quiet* 802.11h.
   3. `Bidirectional Deauth Flood`: Pemutusan hubungan dua arah selang-seling (AP → Klien dan Klien → AP).
@@ -32,6 +32,7 @@
   13. `TKIP/GCMP MIC Error`: Injeksi kesalahan *Message Integrity Check* untuk memicu masa *lockdown* AP.
   14. `Power Save DoS`: Pemalsuan indikator *Power Save* (*TIM Element*) untuk menahan paket data klien.
   15. `FragAttack Injection` (CVE-2020-24588): Manipulasi *header* fragmentasi untuk menyuntikkan data teks polos (*plaintext*) tanpa perlu mengetahui kata sandi Wi-Fi.
+  16. `Operating Channel Aggression (DFS Fake Radar)`: Pemalsuan deteksi radar militer/cuaca pada kanal DFS 5 GHz melalui *Measurement Report* (bit Radar) + *Beacon* CSA `stop-TX`, memaksa AP mematikan kanal dan mengunci transmisi selama beberapa menit sesuai regulasi DFS penerbangan.
 - **🌐 Dukungan Dual-Band (2.4GHz / 5GHz) & Peka DFS**: Mendukung penuh saluran frekuensi tinggi 5GHz (saluran 36–165), konfigurasi VHT `hostapd` 802.11ac, serta peringatan otomatis untuk saluran DFS (52–64, 100–144).
 - **💥 Mode Uji Stress Lapangan / Injeksi Massal (Gaya mdk4)**: Memindai seluruh sinyal nirkabel di udara secara pasif, membangun daftar AP secara otomatis, dan menginjeksi serangan ke seluruh AP yang terdeteksi secara simultan dengan *channel hopping* otomatis di spektrum 2.4GHz dan 5GHz.
 - **⏱️ Pengontrol Laju Berbasis Sliding Window PID**: Mesin pengontrol laju transmisi berbasis algoritma PID pada setiap utas memastikan kelancaran injeksi sesuai mode agresivitas (`STEALTH` ~20 PPS hingga `INSANE` ~5000 PPS).
@@ -160,7 +161,7 @@ sudo ./veritas --script config.example.json
 
 ### 4. Versi Python (`veritas.py`)
 
-Selain biner C11, VERITAS juga menyediakan implementasi Python 3 berbasis Scapy dengan fungsionalitas dan 15 vektor serangan yang setara:
+Selain biner C11, VERITAS juga menyediakan implementasi Python 3 berbasis Scapy dengan fungsionalitas dan 16 vektor serangan yang setara:
 
 ```bash
 sudo python3 veritas.py
@@ -168,7 +169,7 @@ sudo python3 veritas.py
 
 ---
 
-## 🔬 Mekanisme Teknis IEEE 802.11h CSA & FragAttack
+## 🔬 Mekanisme Teknis IEEE 802.11h CSA, FragAttack & DFS Fake Radar
 
 ### 1. Channel Switch Announcement (CSA)
 Standar IEEE 802.11h mendefinisikan *Channel Switch Announcement* (CSA) melalui Elemen Informasi ID 37. Fitur ini dirancang agar Titik Akses (AP) dapat memberitahukan seluruh klien terhubung bahwa AP akan berpindah saluran frekuensi operasi:
@@ -196,6 +197,14 @@ Penyerangan berbasis CVE-2020-24588 memecah *frame* data menjadi dua fragmen ter
 
 Perangkat penerima yang rentan akan menggabungkan kedua fragmen tersebut di dalam memori RAM tanpa memvalidasi enkripsi per-fragmen, sehingga muatan teks polos (*plaintext*) berhasil disuntikkan tanpa mengetahui kunci enkripsi Wi-Fi.
 
+### 3. Operating Channel Aggression (DFS Fake Radar)
+Vektor #16 memalsukan sinyal deteksi radar (militer/cuaca) pada kanal DFS 5 GHz melalui dua *frame* IEEE 802.11h Spectrum Management:
+
+1. **Measurement Report Action** (Kategori 0 / Aksi 1) berisi *Basic Report* dengan bit Radar (`Map = 0x08`) pada saluran operasi target — dikirim seolah-olah dari klien ke AP.
+2. **CSA Beacon** spoofed dari BSSID dengan `mode=1` (hentikan TX) dan `count=0` (pindah seketika) ke saluran non-DFS yang aman — mensimulasikan respons wajib AP saat radar terdeteksi.
+
+AP yang patuh regulasi DFS (ETSI EN 301 893 / FCC Part 15) dapat mematikan kanal secara mendadak dan mengunci transmisi selama *Channel Availability Check* (CAC) atau *Non-Occupancy Period* (beberapa menit) sebelum kanal boleh dipakai kembali.
+
 ---
 
 ## 📊 Hasil Pengujian & Benchmark Kinerja
@@ -213,14 +222,16 @@ Perangkat penerima yang rentan akan menggabungkan kedua fragmen tersebut di dala
 
 ## 🛡️ Strategi Mitigasi & Pengerasan Keamanan
 
-Untuk melindungi infrastruktur nirkabel dari kerentanan manipulasi CSA, FragAttack, dan Titik Akses Tiruan:
+Untuk melindungi infrastruktur nirkabel dari kerentanan manipulasi CSA, FragAttack, DFS Fake Radar, dan Titik Akses Tiruan:
 
 1. **Aktifkan Protected Management Frames (PMF / IEEE 802.11w)**:
    - Wajibkan penggunaan WPA3 atau aktifkan opsi `ieee80211w=2` (Wajib) pada pengontrol Wi-Fi perusahaan Anda. PMF mengenkripsi *frame* manajemen sehingga tidak dapat dipalsukan oleh penyerang.
 2. **Pembaruan Perangkat Lunak (*Firmware Patching*)**:
    - Terapkan pembaruan perangkat keras teranyar untuk menambal kerentanan reassembly fragmentasi *FragAttack*.
 3. **Implementasi WIDS/WIPS Modern**:
-   - Gunakan sistem deteksi nirkabel yang memantau anomali rasio transmisi *Beacon/Action Frame* berulang.
+   - Gunakan sistem deteksi nirkabel yang memantau anomali rasio transmisi *Beacon/Action Frame* berulang serta *Measurement Report* palsu yang mengklaim deteksi radar pada kanal DFS.
+4. **Kebijakan Kanal DFS**:
+   - Pertimbangkan membatasi operasi AP pada UNII-1 / UNII-3 non-DFS bila ketersediaan layanan lebih kritis daripada kapasitas spektrum, atau validasi sumber *radar event* di sisi pengontrol.
 
 ---
 
