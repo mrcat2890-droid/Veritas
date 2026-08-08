@@ -223,6 +223,7 @@ typedef struct {
   int nvec;
   bool scan_5ghz;
   int duration;
+  char export_file[MAX_PATH_LEN];
 } stress_cfg_t;
 
 static void run_stress(stress_cfg_t *cfg);
@@ -2613,12 +2614,15 @@ static void print_help(void) {
   printf("  --ids-bypass    Enable IDS evasion (jittered injection)\n");
   printf("  --dual <iface>  Use dual radio (second monitor interface)\n");
   printf("  --rogue         Spawn rogue AP on redirect channel\n");
-  printf("  --stats <file>  Write live stats JSON to file\n\n");
+  printf("  --stats <file>  Write live stats JSON to file\n");
+  printf("  --export <file> Export audit report to JSON or CSV on exit\n\n");
   printf("Stress test options:\n");
   printf(
       "  --stress        Mass injection mode — inject into ALL detected APs\n");
   printf(
-      "  --5ghz          Include 5GHz channels in stress scan/injection\n\n");
+      "  --5ghz          Include 5GHz channels in stress scan/injection\n");
+  printf(
+      "  --export <file> Export audit report (JSON/CSV) at session completion\n\n");
   printf("Script JSON keys:\n");
   printf(
       "  interface, target_bssid, target_ssid, target_channel, new_channel,\n");
@@ -2626,7 +2630,7 @@ static void print_help(void) {
       "  client_mac, duration, mode, vectors[], refresh_rate, stats_file,\n");
   printf("  log_pmkid, ids_bypass, dual_radio, iface2, spawn_rogue, "
          "rogue_ssid,\n");
-  printf("  stress_mode (bool), scan_5ghz (bool)\n\n");
+  printf("  stress_mode (bool), scan_5ghz (bool), export_file (string)\n\n");
 }
 
 /* ============================================================
@@ -2679,7 +2683,7 @@ static void stress_pool_init(stress_pool_t *p) {
 }
 
 static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
-                            const char *ssid, int channel) {
+                            const char *ssid, int channel, int8_t rssi) {
   pthread_mutex_lock(&p->lock);
 
   /* Update existing? */
@@ -2687,6 +2691,8 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
     if (memcmp(p->aps[i].bssid, bssid, 6) == 0) {
       p->aps[i].last_seen = mono_time();
       p->aps[i].channel = channel;
+      if (rssi < 0 && rssi > -120)
+        p->aps[i].rssi = rssi;
       if (ssid[0] && !p->aps[i].ssid[0])
         snprintf(p->aps[i].ssid, MAX_SSID_LEN + 1, "%.32s", ssid);
       pthread_mutex_unlock(&p->lock);
@@ -2701,7 +2707,7 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
     format_mac(bssid, a->bssid_str);
     snprintf(a->ssid, MAX_SSID_LEN + 1, "%.32s", ssid);
     a->channel = channel;
-    a->rssi = 0;
+    a->rssi = rssi;
     a->last_seen = mono_time();
     a->tx_count = 0;
     p->count++;
@@ -2735,6 +2741,39 @@ static int stress_pool_snapshot(stress_pool_t *p, stress_ap_t *out, int max) {
   memcpy(out, p->aps, (size_t)n * sizeof(stress_ap_t));
   pthread_mutex_unlock(&p->lock);
   return n;
+}
+
+/* Radiotap dBm Antenna Signal Extractor (bit 5) */
+static int8_t parse_radiotap_rssi(const uint8_t *buf, uint16_t rt_len) {
+  if (rt_len < 8)
+    return -100;
+  uint32_t present = 0;
+  memcpy(&present, buf + 4, 4);
+  present = le32toh(present);
+
+  if (present & (1 << 5)) { /* IEEE80211_RADIOTAP_DBM_ANTSIGNAL */
+    int off = 8;
+    if (present & (1 << 0))
+      off += 8; /* TSFT */
+    if (present & (1 << 1))
+      off += 1; /* Flags */
+    if (present & (1 << 2))
+      off += 1; /* Rate */
+    if (present & (1 << 3)) {
+      if (off % 2 != 0)
+        off++;
+      off += 4; /* Channel */
+    }
+    if (present & (1 << 4)) {
+      if (off % 2 != 0)
+        off++;
+      off += 2; /* FHSS */
+    }
+    if (off < (int)rt_len) {
+      return (int8_t)buf[off];
+    }
+  }
+  return -100;
 }
 
 /* ---- Passive Beacon Scanner Thread ---- */
@@ -2826,8 +2865,9 @@ static void *stress_scanner_thread(void *arg) {
       ie_off += 2 + ie_len;
     }
 
+    int8_t rssi = parse_radiotap_rssi(buf, rt_len);
     if (channel > 0) {
-      stress_pool_add(a->pool, bssid, ssid, channel);
+      stress_pool_add(a->pool, bssid, ssid, channel, rssi);
     }
 
     /* Periodically age out stale entries */
@@ -3195,8 +3235,8 @@ static void *stress_display_thread(void *arg) {
     printf("  " C_DEEP_B
            "╠══════════════════════════════════════════════════════════╣" RST
            "\n");
-    printf("  ║ " C_GRAY "  CH  BSSID              SSID              TX" RST
-           "            ║\033[K\n");
+    printf("  ║ " C_GRAY "  CH  BSSID              SSID              PWR"
+           "        TX" RST "  ║\033[K\n");
     printf("  " C_DEEP_B
            "╠══════════════════════════════════════════════════════════╣" RST
            "\n");
@@ -3223,9 +3263,19 @@ static void *stress_display_thread(void *arg) {
       uint64_t atx = snap[i].tx_count;
       char ssid_disp[48];
       if (snap[i].ssid[0]) {
-        snprintf(ssid_disp, sizeof(ssid_disp), "%.18s", snap[i].ssid);
+        snprintf(ssid_disp, sizeof(ssid_disp), "%.16s", snap[i].ssid);
       } else {
         snprintf(ssid_disp, sizeof(ssid_disp), C_DIM_GRAY "<hidden>" RST);
+      }
+
+      char rssi_str[32];
+      if (snap[i].rssi < 0 && snap[i].rssi > -120) {
+        const char *rc = (snap[i].rssi > -60)
+                             ? C_GREEN
+                             : ((snap[i].rssi > -78) ? C_YELLOW : C_RED);
+        snprintf(rssi_str, sizeof(rssi_str), "%s%3d dBm" RST, rc, snap[i].rssi);
+      } else {
+        snprintf(rssi_str, sizeof(rssi_str), C_GRAY "n/a    " RST);
       }
 
       char tx_str[16];
@@ -3236,9 +3286,9 @@ static void *stress_display_thread(void *arg) {
       else
         snprintf(tx_str, sizeof(tx_str), "%lu", (unsigned long)atx);
 
-      printf("  ║ %s%3d" RST "  %-18s %-18s %-10s    ║\033[K\n",
+      printf("  ║ %s%3d" RST "  %-18s %-16s %-14s %-6s ║\033[K\n",
              snap[i].channel == cur_ch ? C_GREEN : C_GRAY, snap[i].channel,
-             snap[i].bssid_str, ssid_disp, tx_str);
+             snap[i].bssid_str, ssid_disp, rssi_str, tx_str);
     }
     if (nsnap > show)
       printf("  ║ " C_DIM_GRAY "  ... +%d more APs" RST
@@ -3262,6 +3312,53 @@ static void *stress_display_thread(void *arg) {
   fflush(stdout);
   free(d);
   return NULL;
+}
+
+/* Audit Report Exporter (JSON / CSV) */
+static void export_report(const char *path, const stress_pool_t *pool,
+                          double elapsed, uint64_t sent, uint64_t fail) {
+  if (!path || !path[0])
+    return;
+  FILE *fp = fopen(path, "w");
+  if (!fp) {
+    fprintf(stderr,
+            "  " C_RED "[!] Failed to write export report to '%s'" RST "\n",
+            path);
+    return;
+  }
+
+  bool is_csv = (strstr(path, ".csv") != NULL);
+  if (is_csv) {
+    fprintf(fp, "bssid,ssid,channel,rssi,tx_count\n");
+    pthread_mutex_lock((pthread_mutex_t *)&pool->lock);
+    for (int i = 0; i < pool->count; i++) {
+      fprintf(fp, "\"%s\",\"%s\",%d,%d,%lu\n", pool->aps[i].bssid_str,
+              pool->aps[i].ssid, pool->aps[i].channel, pool->aps[i].rssi,
+              (unsigned long)pool->aps[i].tx_count);
+    }
+    pthread_mutex_unlock((pthread_mutex_t *)&pool->lock);
+  } else {
+    /* JSON Export */
+    fprintf(fp,
+            "{\n  \"timestamp\": %ld,\n  \"elapsed_seconds\": %.1f,\n  "
+            "\"pkts_sent\": %lu,\n  \"pkts_fail\": %lu,\n  \"aps_count\": %d,\n "
+            " \"aps\": [\n",
+            (long)time(NULL), elapsed, (unsigned long)sent,
+            (unsigned long)fail, pool->count);
+    pthread_mutex_lock((pthread_mutex_t *)&pool->lock);
+    for (int i = 0; i < pool->count; i++) {
+      fprintf(fp,
+              "    {\"bssid\": \"%s\", \"ssid\": \"%s\", \"channel\": %d, "
+              "\"rssi\": %d, \"tx_count\": %lu}%s\n",
+              pool->aps[i].bssid_str, pool->aps[i].ssid, pool->aps[i].channel,
+              pool->aps[i].rssi, (unsigned long)pool->aps[i].tx_count,
+              (i < pool->count - 1) ? "," : "");
+    }
+    pthread_mutex_unlock((pthread_mutex_t *)&pool->lock);
+    fprintf(fp, "  ]\n}\n");
+  }
+  fclose(fp);
+  printf("  " C_GREEN "[✓] Audit report exported to: %s" RST "\n", path);
 }
 
 /* ---- Stress Test Orchestrator ---- */
@@ -3439,6 +3536,7 @@ static void run_stress(stress_cfg_t *cfg) {
 
   /* Restore channel 1 */
   set_ch(cfg->iface, 1);
+  export_report(cfg->export_file, &pool, elapsed, sent, fail);
   pthread_mutex_destroy(&pool.lock);
 }
 
@@ -3480,11 +3578,14 @@ int main(int argc, char **argv) {
   /* Check for --stress flag */
   bool stress_mode = false;
   bool stress_5ghz = false;
+  char export_file[MAX_PATH_LEN] = "";
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--stress") == 0)
       stress_mode = true;
     if (strcmp(argv[i], "--5ghz") == 0)
       stress_5ghz = true;
+    if (strcmp(argv[i], "--export") == 0 && i + 1 < argc)
+      snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
   }
 
   if (stress_mode) {
