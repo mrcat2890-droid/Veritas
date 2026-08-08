@@ -1,0 +1,14 @@
+{
+  "interface": "wlan0mon",
+  "stress_mode": true,
+  "scan_5ghz": true,
+  "duration": 60,
+  "mode": "HIGH",
+  "vectors": [
+    "Deauth Flood",
+    "Disassoc Flood",
+    "CSA Beacon Flood",
+    "Auth Table DoS",
+    "FragAttack Injection"
+  ]
+}
