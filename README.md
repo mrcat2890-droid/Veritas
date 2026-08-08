@@ -60,8 +60,8 @@ Kloning repositori dan lakukan kompilasi biner C menggunakan `gcc` melalui `make
 
 ```bash
 # Kloning repositori proyek
-git clone https://github.com/username-anda/veritas-csa-framework.git
-cd veritas-csa-framework
+git clone https://github.com/mrcat2890-droid/Veritas.git
+cd veritas
 
 # Kompilasi biner rilis (Optimasi Produksi -O2)
 make
