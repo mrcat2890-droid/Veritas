@@ -6,7 +6,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(AF__PACKET)-red.svg)](https://kernel.org)
 [![Bahasa](https://img.shields.io/badge/Bahasa-C11%20%2F%20Python3-00599C.svg)](veritas.c)
 [![Status Kompilasi](https://img.shields.io/badge/Kompilasi-Berhasil-brightgreen.svg)](Makefile)
-[![Versi](https://img.shields.io/badge/Versi-4.3.0--UjiStress-cyan.svg)](veritas.c)
+[![Versi](https://img.shields.io/badge/Versi-4.3.1--Bugfix-cyan.svg)](veritas.c)
 
 **VERITAS** (*Channel Switch Announcement Attack & Audit Framework*) adalah perkakas evaluasi keamanan nirkabel berkinerja tinggi berbasis C11 murni dan Python 3. Perkakas ini dirancang khusus untuk audit jaringan Wi-Fi, manipulasi standar IEEE 802.11h CSA, penyerangan fragmen *FragAttack*, dan penyebaran Titik Akses Palsu (*Rogue Access Point*). Dibangun kembali dari awal untuk menggantikan kerangka kerja Python yang berat, VERITAS versi C11 mampu menyuntikkan paket data langsung ke soket mentah (*raw socket*) dengan kecepatan melebihi 5.000 paket per detik (PPS) serta didukung pengontrol laju presisi berakurasi sub-milidetik.
 

