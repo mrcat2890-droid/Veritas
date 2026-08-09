@@ -345,8 +345,11 @@ static void usleep_precise(double sec) {
 static int parse_mac(const char *s, uint8_t o[6]) {
   unsigned a[6];
   if (sscanf(s, "%x:%x:%x:%x:%x:%x", &a[0], &a[1], &a[2], &a[3], &a[4],
-             &a[5]) != 6)
-    return -1;
+             &a[5]) != 6) {
+    if (sscanf(s, "%x-%x-%x-%x-%x-%x", &a[0], &a[1], &a[2], &a[3], &a[4],
+               &a[5]) != 6)
+      return -1;
+  }
   for (int i = 0; i < 6; i++) {
     if (a[i] > 255)
       return -1;
@@ -1710,6 +1713,7 @@ static pthread_t start_capture(const config_t *c, const target_ap_t *t) {
  * ============================================================ */
 
 static pid_t g_rogue = -1;
+static char g_rogue_iface[MAX_IFACE] = "";
 
 /* [FIX 27,28,44] Proper rogue AP with interface mode switch and 5GHz support */
 static void start_rogue(const config_t *c, const target_ap_t *t) {
@@ -1722,6 +1726,7 @@ static void start_rogue(const config_t *c, const target_ap_t *t) {
     snprintf(ssid, sizeof(ssid), "%s_5G", t->ssid);
 
   const char *ifc = c->iface2[0] ? c->iface2 : c->iface;
+  snprintf(g_rogue_iface, MAX_IFACE, "%s", ifc);
 
   /* [FIX 27] Switch interface to AP mode */
   char cmd_down[128], cmd_type[128], cmd_up[128];
@@ -1777,6 +1782,7 @@ static void start_rogue(const config_t *c, const target_ap_t *t) {
 
 /* [FIX 29] Blocking waitpid for clean zombie reap */
 static void stop_rogue(const char *iface2) {
+  (void)iface2;
   if (g_rogue > 0) {
     kill(g_rogue, SIGTERM);
     /* [FIX 29] Wait up to 3 seconds for clean exit */
@@ -1791,15 +1797,16 @@ static void stop_rogue(const char *iface2) {
     g_rogue = -1;
 
     /* Restore interface to monitor mode */
-    if (iface2 && iface2[0]) {
+    if (g_rogue_iface[0]) {
       char cmd[128];
-      snprintf(cmd, sizeof(cmd), "ip link set %s down 2>/dev/null", iface2);
+      snprintf(cmd, sizeof(cmd), "ip link set %s down 2>/dev/null", g_rogue_iface);
       system(cmd);
       snprintf(cmd, sizeof(cmd), "iw dev %s set type monitor 2>/dev/null",
-               iface2);
+               g_rogue_iface);
       system(cmd);
-      snprintf(cmd, sizeof(cmd), "ip link set %s up 2>/dev/null", iface2);
+      snprintf(cmd, sizeof(cmd), "ip link set %s up 2>/dev/null", g_rogue_iface);
       system(cmd);
+      g_rogue_iface[0] = '\0';
     }
   }
 }
@@ -3822,6 +3829,8 @@ int main(int argc, char **argv) {
       cfg.dual_radio = true;
     } else if (strcmp(argv[i], "--stats") == 0 && i + 1 < argc) {
       cli_stats = argv[++i];
+    } else if (strcmp(argv[i], "--export") == 0 && i + 1 < argc) {
+      snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
     }
   }
 
@@ -3932,5 +3941,17 @@ int main(int argc, char **argv) {
   pthread_join(dsp_t, NULL);
   stop_rogue(cfg.iface2);
   print_summary(&cfg, &tgt);
+  if (export_file[0]) {
+    stress_pool_t single_pool;
+    stress_pool_init(&single_pool);
+    uint8_t zero_mac[6] = {0};
+    stress_pool_add(&single_pool, zero_mac, tgt.ssid, tgt.channel, -50);
+    parse_mac(tgt.bssid, single_pool.aps[0].bssid);
+    format_mac(single_pool.aps[0].bssid, single_pool.aps[0].bssid_str);
+    single_pool.aps[0].tx_count = atomic_load(&g_pkts_sent);
+    export_report(export_file, &single_pool, mono_time() - g_start_time,
+                  atomic_load(&g_pkts_sent), atomic_load(&g_pkts_fail));
+    pthread_mutex_destroy(&single_pool.lock);
+  }
   return 0;
 }
