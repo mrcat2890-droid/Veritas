@@ -213,6 +213,7 @@ typedef struct {
   bool ids_bypass;
   bool log_pmkid;
   bool spawn_rogue;
+  bool unmask_hidden;
   char rogue_ssid[MAX_SSID_LEN + 1];
   double refresh_rate;
   char stats_file[MAX_PATH_LEN];
@@ -224,6 +225,7 @@ typedef struct {
   bool vec_on[VEC_COUNT];
   int nvec;
   bool scan_5ghz;
+  bool unmask_hidden;
   int duration;
   char export_file[MAX_PATH_LEN];
 } stress_cfg_t;
@@ -471,8 +473,9 @@ static int inject_one(int sock, const uint8_t *p, int len) {
 
 static const uint8_t BCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-#define FC_BEACON 0x0080
+#define FC_PROBEREQ 0x0040
 #define FC_PROBERESP 0x0050
+#define FC_BEACON 0x0080
 #define FC_AUTH 0x00B0
 #define FC_DEAUTH 0x00C0
 #define FC_DISASSOC 0x00A0
@@ -500,6 +503,21 @@ static int mk_dot11(uint8_t *b, uint16_t fc, const uint8_t d[6],
   memcpy(h->a3, bs, 6);
   h->seq = htole16(seq << 4); /* [FIX 41] */
   return sizeof(dot11_t);
+}
+
+static int mk_probe_req(uint8_t *b, const uint8_t bss[6]) {
+  int o = 0;
+  o += mk_rt(b + o);
+  o += mk_dot11(b + o, FC_PROBEREQ, bss ? bss : BCAST, BCAST, bss ? bss : BCAST, 0);
+  /* Wildcard SSID IE (ID=0, len=0) */
+  b[o++] = 0;
+  b[o++] = 0;
+  /* Supported rates IE (ID=1, len=8) */
+  b[o++] = 1;
+  b[o++] = 8;
+  b[o++] = 0x82; b[o++] = 0x84; b[o++] = 0x8b; b[o++] = 0x96;
+  b[o++] = 0x0c; b[o++] = 0x12; b[o++] = 0x18; b[o++] = 0x24;
+  return o;
 }
 
 /* [FIX 6] Helper: append DS Parameter Set IE */
@@ -2597,14 +2615,16 @@ static void run_script(const char *path) {
   jstr(j, "stats_file", cfg.stats_file, MAX_PATH_LEN);
   jstr(j, "iface2", cfg.iface2, MAX_IFACE);
 
-  bool script_stress = false, script_5ghz = false;
+  bool script_stress = false, script_5ghz = false, script_unmask = false;
   jbool(j, "stress_mode", &script_stress);
   jbool(j, "scan_5ghz", &script_5ghz);
+  jbool(j, "unmask_hidden", &script_unmask);
 
   if (script_stress) {
     stress_cfg_t scfg = {0};
     snprintf(scfg.iface, MAX_IFACE, "%.31s", cfg.iface);
     scfg.scan_5ghz = script_5ghz;
+    scfg.unmask_hidden = script_unmask;
     scfg.duration = cfg.duration;
     scfg.mode = MODE_MEDIUM;
 
@@ -2772,6 +2792,8 @@ static void print_help(void) {
   printf(
       "  --5ghz          Include 5GHz channels in stress scan/injection\n");
   printf(
+      "  --unmask-hidden Actively sweep Probe Requests to unmask hidden SSIDs\n");
+  printf(
       "  --export <file> Export audit report (JSON/CSV) at session completion\n\n");
   printf("Script JSON keys:\n");
   printf(
@@ -2780,7 +2802,7 @@ static void print_help(void) {
       "  client_mac, duration, mode, vectors[], refresh_rate, stats_file,\n");
   printf("  log_pmkid, ids_bypass, dual_radio, iface2, spawn_rogue, "
          "rogue_ssid,\n");
-  printf("  stress_mode (bool), scan_5ghz (bool), export_file (string)\n\n");
+  printf("  stress_mode (bool), scan_5ghz (bool), unmask_hidden (bool), export_file (string)\n\n");
 }
 
 /* ============================================================
@@ -2931,6 +2953,7 @@ static int8_t parse_radiotap_rssi(const uint8_t *buf, uint16_t rt_len) {
 typedef struct {
   char iface[MAX_IFACE];
   stress_pool_t *pool;
+  bool unmask_hidden;
 } stress_scan_arg_t;
 
 static void *stress_scanner_thread(void *arg) {
@@ -2953,6 +2976,15 @@ static void *stress_scanner_thread(void *arg) {
 
   uint8_t buf[4096];
   while (!g_stop) {
+    /* Active Probe Request sweep when unmask_hidden is enabled */
+    static int probe_cnt = 0;
+    if (a->unmask_hidden && ++probe_cnt >= 50) {
+      probe_cnt = 0;
+      uint8_t pb[256];
+      int plen = mk_probe_req(pb, BCAST);
+      inject_one(sock, pb, plen);
+    }
+
     ssize_t n = recv(sock, buf, sizeof(buf), 0);
     if (n <= 36)
       continue;
@@ -3644,6 +3676,7 @@ static void run_stress(stress_cfg_t *cfg) {
   stress_scan_arg_t *sa = calloc(1, sizeof(*sa));
   snprintf(sa->iface, MAX_IFACE, "%s", cfg->iface);
   sa->pool = &pool;
+  sa->unmask_hidden = cfg->unmask_hidden;
   pthread_t scan_t;
   pthread_create(&scan_t, NULL, stress_scanner_thread, sa);
 
@@ -3783,12 +3816,15 @@ int main(int argc, char **argv) {
   /* Check for --stress flag */
   bool stress_mode = false;
   bool stress_5ghz = false;
+  bool unmask_hidden = false;
   char export_file[MAX_PATH_LEN] = "";
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--stress") == 0)
       stress_mode = true;
     if (strcmp(argv[i], "--5ghz") == 0)
       stress_5ghz = true;
+    if (strcmp(argv[i], "--unmask-hidden") == 0)
+      unmask_hidden = true;
     if (strcmp(argv[i], "--export") == 0 && i + 1 < argc)
       snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
   }
@@ -3798,6 +3834,7 @@ int main(int argc, char **argv) {
     stress_cfg_t scfg = {0};
     scfg.mode = MODE_MEDIUM;
     scfg.scan_5ghz = stress_5ghz;
+    scfg.unmask_hidden = unmask_hidden;
 
     /* Interface selection */
     menu_iface(scfg.iface, sizeof(scfg.iface));
