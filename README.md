@@ -1,4 +1,4 @@
-# VERITAS v4.4 — Kerangka Kerja Audit Keamanan & Pengujian Presisi Wi-Fi 802.11 CSA
+# VERITAS v4.5 — Kerangka Kerja Audit Keamanan & Pengujian Presisi Wi-Fi 802.11 CSA
 
 ![Banner VERITAS](assets/banner.png)
 
@@ -6,7 +6,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(AF__PACKET)-red.svg)](https://kernel.org)
 [![Bahasa](https://img.shields.io/badge/Bahasa-C11%20%2F%20Python3-00599C.svg)](veritas.c)
 [![Status Kompilasi](https://img.shields.io/badge/Kompilasi-Berhasil-brightgreen.svg)](Makefile)
-[![Versi](https://img.shields.io/badge/Versi-4.4.0-cyan.svg)](veritas.c)
+[![Versi](https://img.shields.io/badge/Versi-4.5.0-cyan.svg)](veritas.c)
 
 **VERITAS** (*Channel Switch Announcement Attack & Audit Framework*) adalah perkakas evaluasi keamanan nirkabel berkinerja tinggi berbasis C11 murni dan Python 3. Perkakas ini dirancang khusus untuk audit jaringan Wi-Fi, manipulasi standar IEEE 802.11h CSA, penyerangan fragmen *FragAttack*, agresivitas kanal DFS (*Operating Channel Aggression*), dan penyebaran Titik Akses Palsu (*Rogue Access Point*). Dibangun kembali dari awal untuk menggantikan kerangka kerja Python yang berat, VERITAS versi C11 mampu menyuntikkan paket data langsung ke soket mentah (*raw socket*) dengan kecepatan melebihi 5.000 paket per detik (PPS) serta didukung pengontrol laju presisi berakurasi sub-milidetik.
 
@@ -15,6 +15,7 @@
 ## ⚡ Fitur Utama
 
 - **🚀 Injeksi Berkecepatan Tinggi**: Dibangun menggunakan soket mentah `AF_PACKET` dengan metode pengiriman massal `sendmmsg()` (hingga 16 paket per satu panggilan sistem/*syscall*) serta optimasi memori pemancar kernel hingga 2MB (`SO_SNDBUF`).
+- **🔍 Pembuka Jaringan Tersembunyi Active Probe Sweep (`--unmask-hidden`)**: Menyuntikkan *Probe Request Broadcast* secara aktif dan mengekstrak *Probe Response* serta *Directed Probe Request* untuk membuka identitas nama SSID yang disembunyikan (*Hidden SSID*) secara real-time.
 - **🔒 Mesin Multithread Tanpa Pengunci (*Lock-Free Engine*)**: Eksekusi pengujian multi-vektor secara bersamaan ditenagai oleh `<stdatomic.h>` dan deskriptor soket per-utas (*per-thread*) untuk mencegah hambatan antrean memori.
 - **🎯 16 Vektor Serangan Khusus**:
   1. `CSA Beacon Flood`: Banjir *Beacon* pengalihan saluran IEEE 802.11h.

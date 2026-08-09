@@ -1864,7 +1864,7 @@ def run_stress_mode(iface: str, scan_5ghz: bool = False, mode: AttackMode = Atta
         def prn(pkt):
             if state.stop_event.is_set():
                 return
-            if pkt.haslayer(Dot11Beacon):
+            if pkt.haslayer(Dot11Beacon) or pkt.haslayer(Dot11ProbeResp):
                 bssid = pkt[Dot11].addr2
                 if not bssid or bssid.startswith("01:"):
                     return
@@ -1889,6 +1889,22 @@ def run_stress_mode(iface: str, scan_5ghz: bool = False, mode: AttackMode = Atta
                         ap_pool[bssid]["channel"] = ch
                         if ssid and not ap_pool[bssid]["ssid"]:
                             ap_pool[bssid]["ssid"] = ssid
+            elif pkt.haslayer(Dot11ProbeReq):
+                target_bssid = pkt[Dot11].addr3
+                if target_bssid and not target_bssid.startswith("01:") and target_bssid != "ff:ff:ff:ff:ff:ff":
+                    elt = pkt.getlayer(Dot11Elt)
+                    while elt:
+                        if elt.ID == 0 and elt.info:
+                            try:
+                                ssid = elt.info.decode('utf-8', errors='ignore')
+                                if ssid:
+                                    with pool_lock:
+                                        if target_bssid in ap_pool and not ap_pool[target_bssid]["ssid"]:
+                                            ap_pool[target_bssid]["ssid"] = ssid
+                            except Exception:
+                                pass
+                            break
+                        elt = elt.payload.getlayer(Dot11Elt) if hasattr(elt.payload, 'getlayer') else None
 
         try:
             sniff(iface=iface, prn=prn, store=False, stop_filter=lambda _: state.stop_event.is_set())

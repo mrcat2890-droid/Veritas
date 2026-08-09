@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.0] - 2026-08-09
+
+### Added & Improved
+- **Active Hidden SSID Unmasking (`--unmask-hidden`)**: Added active Probe Request sweep mode (`mk_probe_req`) and passive Probe Response / Directed Probe Request parsing to reveal hidden SSIDs in real-time across targeted and stress modes in both C11 (`veritas.c`) and Python (`veritas.py`).
+- **Instant Channel Switch Synchronization**: Updated CSA beacon and probe builders (`mk_csa_beacon` and `mk_probe_resp_csa`) to synchronize the DS Parameter Set IE directly to `new_ch` alongside instant `csa_count = 1` for forced RF retuning on target clients.
+- **JSON Script Parity**: Added `"unmask_hidden": true` boolean option in JSON script configuration files.
+
+---
+
 ## [4.4.0] - 2026-08-08
 
 ### Added
