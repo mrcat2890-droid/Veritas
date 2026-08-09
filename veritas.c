@@ -2085,7 +2085,7 @@ static int scan_aps(const char *iface, int dur, target_ap_t *aps, int max,
     if (nf >= 14)
       essid = fld[13];
     if (!essid[0])
-      continue;
+      essid = "<hidden>";
 
     snprintf(aps[cnt].bssid, MAX_MAC_STR, "%.17s", fld[0]);
     snprintf(aps[cnt].ssid, MAX_SSID_LEN + 1, "%.32s", essid);
@@ -3025,7 +3025,6 @@ static void *stress_scanner_thread(void *arg) {
           /* SSID IE */
           memcpy(ssid, buf + ie_off + 2, ie_len);
           ssid[ie_len] = 0;
-          /* Filter non-printable SSIDs */
           bool printable = true;
           for (int j = 0; j < ie_len; j++) {
             if (ssid[j] < 0x20 || ssid[j] > 0x7E) {
@@ -3043,7 +3042,13 @@ static void *stress_scanner_thread(void *arg) {
         ie_off += 2 + ie_len;
       }
 
+      if (!ssid[0]) {
+        snprintf(ssid, sizeof(ssid), "<hidden>");
+      }
       int8_t rssi = parse_radiotap_rssi(buf, rt_len);
+      if (channel <= 0) {
+        channel = atomic_load(&g_stress_ch);
+      }
       if (channel > 0) {
         stress_pool_add(a->pool, bssid, ssid, channel, rssi);
       }
