@@ -2959,63 +2959,94 @@ static void *stress_scanner_thread(void *arg) {
     uint16_t rt_len = 0;
     memcpy(&rt_len, buf + 2, 2);
     rt_len = le16toh(rt_len);
-    if (rt_len < 8 || (size_t)rt_len + sizeof(dot11_t) > (size_t)n)
-      continue;
-
-    /* Check if this is a Beacon (type=0, subtype=8) */
     dot11_t *d = (dot11_t *)(buf + rt_len);
     uint16_t fc = le16toh(d->fc);
     uint8_t type = (fc >> 2) & 0x03;
     uint8_t subtype = (fc >> 4) & 0x0F;
-    if (type != 0 || subtype != 8)
-      continue; /* not a beacon */
 
-    /* BSSID = addr2 (transmitter) */
-    uint8_t *bssid = d->a2;
-
-    /* Skip broadcast/multicast BSSIDs */
-    if (bssid[0] & 0x01)
+    /* Check management frames: Beacon (type=0, subtype=8), Probe Resp (0,5), Probe Req (0,4) */
+    if (type != 0)
       continue;
 
-    /* Walk IEs to find SSID (ID=0) and DS Parameter Set (ID=3) */
-    int ie_off = rt_len + sizeof(dot11_t) + sizeof(beacon_fix_t);
-    if (ie_off >= n)
-      continue;
+    if (subtype == 8 || subtype == 5) {
+      /* Beacon (8) or Probe Response (5) */
+      uint8_t *bssid = d->a2;
+      if (bssid[0] & 0x01)
+        continue;
 
-    char ssid[MAX_SSID_LEN + 1] = "";
-    int channel = 0;
+      int ie_off = rt_len + sizeof(dot11_t) + (subtype == 8 ? sizeof(beacon_fix_t) : 12);
+      if (ie_off >= n)
+        continue;
 
-    while (ie_off + 2 <= (int)n) {
-      uint8_t ie_id = buf[ie_off];
-      uint8_t ie_len = buf[ie_off + 1];
-      if (ie_off + 2 + ie_len > (int)n)
-        break;
+      char ssid[MAX_SSID_LEN + 1] = "";
+      int channel = 0;
 
-      if (ie_id == 0 && ie_len > 0 && ie_len <= MAX_SSID_LEN) {
-        /* SSID IE */
-        memcpy(ssid, buf + ie_off + 2, ie_len);
-        ssid[ie_len] = 0;
-        /* Filter non-printable SSIDs */
-        bool printable = true;
-        for (int j = 0; j < ie_len; j++) {
-          if (ssid[j] < 0x20 || ssid[j] > 0x7E) {
-            printable = false;
-            break;
+      while (ie_off + 2 <= (int)n) {
+        uint8_t ie_id = buf[ie_off];
+        uint8_t ie_len = buf[ie_off + 1];
+        if (ie_off + 2 + ie_len > (int)n)
+          break;
+
+        if (ie_id == 0 && ie_len > 0 && ie_len <= MAX_SSID_LEN) {
+          /* SSID IE */
+          memcpy(ssid, buf + ie_off + 2, ie_len);
+          ssid[ie_len] = 0;
+          /* Filter non-printable SSIDs */
+          bool printable = true;
+          for (int j = 0; j < ie_len; j++) {
+            if (ssid[j] < 0x20 || ssid[j] > 0x7E) {
+              printable = false;
+              break;
+            }
           }
+          if (!printable)
+            ssid[0] = 0;
+        } else if (ie_id == 3 && ie_len == 1) {
+          /* DS Parameter Set → channel */
+          channel = buf[ie_off + 2];
         }
-        if (!printable)
-          ssid[0] = 0;
-      } else if (ie_id == 3 && ie_len == 1) {
-        /* DS Parameter Set → channel */
-        channel = buf[ie_off + 2];
+
+        ie_off += 2 + ie_len;
       }
 
-      ie_off += 2 + ie_len;
-    }
+      int8_t rssi = parse_radiotap_rssi(buf, rt_len);
+      if (channel > 0) {
+        stress_pool_add(a->pool, bssid, ssid, channel, rssi);
+      }
+    } else if (subtype == 4) {
+      /* Probe Request (4): unmask hidden SSIDs from directed client probe requests */
+      int ie_off = rt_len + sizeof(dot11_t);
+      if (ie_off >= n)
+        continue;
 
-    int8_t rssi = parse_radiotap_rssi(buf, rt_len);
-    if (channel > 0) {
-      stress_pool_add(a->pool, bssid, ssid, channel, rssi);
+      char ssid[MAX_SSID_LEN + 1] = "";
+      while (ie_off + 2 <= (int)n) {
+        uint8_t ie_id = buf[ie_off];
+        uint8_t ie_len = buf[ie_off + 1];
+        if (ie_off + 2 + ie_len > (int)n)
+          break;
+
+        if (ie_id == 0 && ie_len > 0 && ie_len <= MAX_SSID_LEN) {
+          memcpy(ssid, buf + ie_off + 2, ie_len);
+          ssid[ie_len] = 0;
+          bool printable = true;
+          for (int j = 0; j < ie_len; j++) {
+            if (ssid[j] < 0x20 || ssid[j] > 0x7E) {
+              printable = false;
+              break;
+            }
+          }
+          if (!printable)
+            ssid[0] = 0;
+          break;
+        }
+        ie_off += 2 + ie_len;
+      }
+
+      if (ssid[0] && !(d->a3[0] & 0x01)) {
+        int8_t rssi = parse_radiotap_rssi(buf, rt_len);
+        stress_pool_add(a->pool, d->a3, ssid, 0, rssi);
+      }
     }
 
     /* Periodically age out stale entries */
