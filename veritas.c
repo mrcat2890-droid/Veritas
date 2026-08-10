@@ -3313,8 +3313,17 @@ static void *stress_injector_thread(void *arg) {
         if (redir < 1)
           redir = 11;
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
+        
         len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
                             (uint8_t)redir);
+
+        /* [FAST-PATH] Bypass mono_us() syscall by using pre-calculated TS */
+        static __thread uint64_t fast_ts = 0;
+        if (!fast_ts) fast_ts = mono_us();
+        fast_ts += 100; /* Increment fake microseconds linearly without syscall */
+        uint64_t ts_le = htole64(fast_ts);
+        memcpy(tmp + sizeof(rt_hdr_t) + offsetof(dot11_t, seq) + 2, &ts_le, 8);
+
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
