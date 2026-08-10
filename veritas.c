@@ -2835,6 +2835,7 @@ typedef struct {
   char ssid[MAX_SSID_LEN + 1];
   int channel;
   int8_t rssi;
+  char encryption[16];
   double last_seen;
   uint64_t tx_count;
 } stress_ap_t;
@@ -2855,7 +2856,8 @@ static void stress_pool_init(stress_pool_t *p) {
 }
 
 static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
-                            const char *ssid, int channel, int8_t rssi) {
+                            const char *ssid, int channel, int8_t rssi,
+                            const char *enc) {
   pthread_mutex_lock(&p->lock);
 
   /* Update existing? */
@@ -2865,8 +2867,12 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
       p->aps[i].channel = channel;
       if (rssi < 0 && rssi > -120)
         p->aps[i].rssi = rssi;
-      if (ssid[0] && !p->aps[i].ssid[0])
-        snprintf(p->aps[i].ssid, MAX_SSID_LEN + 1, "%.32s", ssid);
+      if (enc && enc[0])
+        snprintf(p->aps[i].encryption, sizeof(p->aps[i].encryption), "%.15s", enc);
+      if (ssid[0]) {
+        if (!p->aps[i].ssid[0] || p->aps[i].ssid[0] == '<')
+          snprintf(p->aps[i].ssid, MAX_SSID_LEN + 1, "%.32s", ssid);
+      }
       pthread_mutex_unlock(&p->lock);
       return;
     }
@@ -2880,6 +2886,7 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
     snprintf(a->ssid, MAX_SSID_LEN + 1, "%.32s", ssid);
     a->channel = channel;
     a->rssi = rssi;
+    snprintf(a->encryption, sizeof(a->encryption), "%.15s", enc && enc[0] ? enc : "OPN");
     a->last_seen = mono_time();
     a->tx_count = 0;
     p->count++;
@@ -2923,26 +2930,40 @@ static int8_t parse_radiotap_rssi(const uint8_t *buf, uint16_t rt_len) {
   memcpy(&present, buf + 4, 4);
   present = le32toh(present);
 
+  int off = 8;
+  uint32_t cur_p = present;
+  while (cur_p & (1U << 31)) {
+    if (off + 4 > (int)rt_len)
+      return -100;
+    memcpy(&cur_p, buf + off, 4);
+    cur_p = le32toh(cur_p);
+    off += 4;
+  }
+
   if (present & (1 << 5)) { /* IEEE80211_RADIOTAP_DBM_ANTSIGNAL */
-    int off = 8;
-    if (present & (1 << 0))
+    if (present & (1 << 0)) {
+      while (off % 8 != 0)
+        off++;
       off += 8; /* TSFT */
+    }
     if (present & (1 << 1))
       off += 1; /* Flags */
     if (present & (1 << 2))
       off += 1; /* Rate */
     if (present & (1 << 3)) {
-      if (off % 2 != 0)
+      while (off % 2 != 0)
         off++;
       off += 4; /* Channel */
     }
     if (present & (1 << 4)) {
-      if (off % 2 != 0)
+      while (off % 2 != 0)
         off++;
       off += 2; /* FHSS */
     }
     if (off < (int)rt_len) {
-      return (int8_t)buf[off];
+      int8_t sig = (int8_t)buf[off];
+      if (sig < 0 && sig > -120)
+        return sig;
     }
   }
   return -100;
@@ -3015,6 +3036,16 @@ static void *stress_scanner_thread(void *arg) {
       char ssid[MAX_SSID_LEN + 1] = "";
       int channel = 0;
 
+      uint16_t cap_info = 0;
+      if (rt_len + sizeof(dot11_t) + 12 <= (size_t)n) {
+        memcpy(&cap_info, buf + rt_len + sizeof(dot11_t) + 10, 2);
+        cap_info = le16toh(cap_info);
+      }
+
+      char enc[16] = "OPN";
+      if (cap_info & 0x0010)
+        snprintf(enc, sizeof(enc), "WEP");
+
       while (ie_off + 2 <= (int)n) {
         uint8_t ie_id = buf[ie_off];
         uint8_t ie_len = buf[ie_off + 1];
@@ -3037,6 +3068,32 @@ static void *stress_scanner_thread(void *arg) {
         } else if (ie_id == 3 && ie_len == 1) {
           /* DS Parameter Set → channel */
           channel = buf[ie_off + 2];
+        } else if (ie_id == 48 && ie_len >= 12) {
+          /* RSN IE (WPA2 / WPA3) */
+          snprintf(enc, sizeof(enc), "WPA2");
+          const uint8_t *ie_ptr = buf + ie_off + 2;
+          if (ie_len >= 8) {
+            uint16_t pair_cnt = ie_ptr[6] | (ie_ptr[7] << 8);
+            int akm_off = 8 + pair_cnt * 4;
+            if (ie_len >= akm_off + 2) {
+              uint16_t akm_cnt = ie_ptr[akm_off] | (ie_ptr[akm_off + 1] << 8);
+              int akm_base = akm_off + 2;
+              for (int av = 0; av < akm_cnt && akm_base + av * 4 + 4 <= ie_len; av++) {
+                const uint8_t *akm = ie_ptr + akm_base + av * 4;
+                if (akm[0] == 0x00 && akm[1] == 0x0F && akm[2] == 0xAC && (akm[3] == 8 || akm[3] == 9 || akm[3] == 19)) {
+                  snprintf(enc, sizeof(enc), "WPA3");
+                  break;
+                }
+              }
+            }
+          }
+        } else if (ie_id == 221 && ie_len >= 6) {
+          /* Vendor IE (WPA1) */
+          const uint8_t *vp = buf + ie_off + 2;
+          if (vp[0] == 0x00 && vp[1] == 0x50 && vp[2] == 0xF2 && vp[3] == 0x02) {
+            if (strcmp(enc, "WPA2") != 0 && strcmp(enc, "WPA3") != 0)
+              snprintf(enc, sizeof(enc), "WPA");
+          }
         }
 
         ie_off += 2 + ie_len;
@@ -3050,7 +3107,7 @@ static void *stress_scanner_thread(void *arg) {
         channel = atomic_load(&g_stress_ch);
       }
       if (channel > 0) {
-        stress_pool_add(a->pool, bssid, ssid, channel, rssi);
+        stress_pool_add(a->pool, bssid, ssid, channel, rssi, enc);
       }
     } else if (subtype == 4) {
       /* Probe Request (4): unmask hidden SSIDs from directed client probe requests */
@@ -3084,7 +3141,7 @@ static void *stress_scanner_thread(void *arg) {
 
       if (ssid[0] && !(d->a3[0] & 0x01)) {
         int8_t rssi = parse_radiotap_rssi(buf, rt_len);
-        stress_pool_add(a->pool, d->a3, ssid, 0, rssi);
+        stress_pool_add(a->pool, d->a3, ssid, 0, rssi, "");
       }
     }
 
@@ -3477,8 +3534,7 @@ static void *stress_display_thread(void *arg) {
     printf("  " C_DEEP_B
            "╠══════════════════════════════════════════════════════════╣" RST
            "\n");
-    printf("  ║ " C_GRAY "  CH  BSSID              SSID              PWR"
-           "        TX" RST "  ║\033[K\n");
+    printf("  ║ " C_GRAY "  CH  BSSID              SSID             PWR      ENC     TX" RST "  ║\033[K\n");
     printf("  " C_DEEP_B
            "╠══════════════════════════════════════════════════════════╣" RST
            "\n");
@@ -3528,9 +3584,10 @@ static void *stress_display_thread(void *arg) {
       else
         snprintf(tx_str, sizeof(tx_str), "%lu", (unsigned long)atx);
 
-      printf("  ║ %s%3d" RST "  %-18s %-16s %-14s %-6s ║\033[K\n",
+      const char *enc_str = snap[i].encryption[0] ? snap[i].encryption : "OPN";
+      printf("  ║ %s%3d" RST "  %-18s %-16s %-8s %-7s %-5s ║\033[K\n",
              snap[i].channel == cur_ch ? C_GREEN : C_GRAY, snap[i].channel,
-             snap[i].bssid_str, ssid_disp, rssi_str, tx_str);
+             snap[i].bssid_str, ssid_disp, rssi_str, enc_str, tx_str);
     }
     if (nsnap > show)
       printf("  ║ " C_DIM_GRAY "  ... +%d more APs" RST
@@ -3571,11 +3628,12 @@ static void export_report(const char *path, const stress_pool_t *pool,
 
   bool is_csv = (strstr(path, ".csv") != NULL);
   if (is_csv) {
-    fprintf(fp, "bssid,ssid,channel,rssi,tx_count\n");
+    fprintf(fp, "bssid,ssid,channel,rssi,encryption,tx_count\n");
     pthread_mutex_lock((pthread_mutex_t *)&pool->lock);
     for (int i = 0; i < pool->count; i++) {
-      fprintf(fp, "\"%s\",\"%s\",%d,%d,%lu\n", pool->aps[i].bssid_str,
+      fprintf(fp, "\"%s\",\"%s\",%d,%d,\"%s\",%lu\n", pool->aps[i].bssid_str,
               pool->aps[i].ssid, pool->aps[i].channel, pool->aps[i].rssi,
+              pool->aps[i].encryption[0] ? pool->aps[i].encryption : "OPN",
               (unsigned long)pool->aps[i].tx_count);
     }
     pthread_mutex_unlock((pthread_mutex_t *)&pool->lock);
@@ -3591,9 +3649,10 @@ static void export_report(const char *path, const stress_pool_t *pool,
     for (int i = 0; i < pool->count; i++) {
       fprintf(fp,
               "    {\"bssid\": \"%s\", \"ssid\": \"%s\", \"channel\": %d, "
-              "\"rssi\": %d, \"tx_count\": %lu}%s\n",
+              "\"rssi\": %d, \"encryption\": \"%s\", \"tx_count\": %lu}%s\n",
               pool->aps[i].bssid_str, pool->aps[i].ssid, pool->aps[i].channel,
-              pool->aps[i].rssi, (unsigned long)pool->aps[i].tx_count,
+              pool->aps[i].rssi, pool->aps[i].encryption[0] ? pool->aps[i].encryption : "OPN",
+              (unsigned long)pool->aps[i].tx_count,
               (i < pool->count - 1) ? "," : "");
     }
     pthread_mutex_unlock((pthread_mutex_t *)&pool->lock);
@@ -4020,7 +4079,7 @@ int main(int argc, char **argv) {
     stress_pool_t single_pool;
     stress_pool_init(&single_pool);
     uint8_t zero_mac[6] = {0};
-    stress_pool_add(&single_pool, zero_mac, tgt.ssid, tgt.channel, -50);
+    stress_pool_add(&single_pool, zero_mac, tgt.ssid, tgt.channel, -50, "");
     parse_mac(tgt.bssid, single_pool.aps[0].bssid);
     format_mac(single_pool.aps[0].bssid, single_pool.aps[0].bssid_str);
     single_pool.aps[0].tx_count = atomic_load(&g_pkts_sent);
