@@ -2594,7 +2594,7 @@ static void run_script(const char *path) {
   config_t cfg = {0};
   cfg.mode = MODE_MEDIUM;
   cfg.new_ch = 1;
-  strcpy(cfg.client, "ff:ff:ff:ff:ff:ff");
+  snprintf(cfg.client, sizeof(cfg.client), "ff:ff:ff:ff:ff:ff");
   cfg.refresh_rate = 0.1;
   target_ap_t tgt = {0};
 
@@ -2837,7 +2837,7 @@ typedef struct {
   int8_t rssi;
   char encryption[16];
   double last_seen;
-  uint64_t tx_count;
+  _Atomic uint64_t tx_count;
 } stress_ap_t;
 
 typedef struct {
@@ -2888,7 +2888,7 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
     a->rssi = rssi;
     snprintf(a->encryption, sizeof(a->encryption), "%.15s", enc && enc[0] ? enc : "OPN");
     a->last_seen = mono_time();
-    a->tx_count = 0;
+    atomic_store(&a->tx_count, 0);
     p->count++;
     atomic_store(&g_stress_aps_seen, p->count);
   }
@@ -3444,15 +3444,13 @@ static void *stress_injector_thread(void *arg) {
         }
       }
 
-      /* Update per-AP counter */
-      pthread_mutex_lock(&a->pool->lock);
+      /* Update per-AP counter lock-free */
       for (int j = 0; j < a->pool->count; j++) {
         if (memcmp(a->pool->aps[j].bssid, bss, 6) == 0) {
-          a->pool->aps[j].tx_count += (uint64_t)sent_for_ap;
+          __atomic_fetch_add(&a->pool->aps[j].tx_count, (uint64_t)sent_for_ap, __ATOMIC_RELAXED);
           break;
         }
       }
-      pthread_mutex_unlock(&a->pool->lock);
 
       /* Small inter-AP delay */
       usleep_precise(base_sleep);
@@ -3558,7 +3556,7 @@ static void *stress_display_thread(void *arg) {
     int show = nsnap > max_rows ? max_rows : nsnap;
 
     for (int i = 0; i < show; i++) {
-      uint64_t atx = snap[i].tx_count;
+      uint64_t atx = atomic_load(&snap[i].tx_count);
       char ssid_disp[48];
       if (snap[i].ssid[0]) {
         snprintf(ssid_disp, sizeof(ssid_disp), "%.16s", snap[i].ssid);
@@ -4082,7 +4080,7 @@ int main(int argc, char **argv) {
     stress_pool_add(&single_pool, zero_mac, tgt.ssid, tgt.channel, -50, "");
     parse_mac(tgt.bssid, single_pool.aps[0].bssid);
     format_mac(single_pool.aps[0].bssid, single_pool.aps[0].bssid_str);
-    single_pool.aps[0].tx_count = atomic_load(&g_pkts_sent);
+    atomic_store(&single_pool.aps[0].tx_count, atomic_load(&g_pkts_sent));
     export_report(export_file, &single_pool, mono_time() - g_start_time,
                   atomic_load(&g_pkts_sent), atomic_load(&g_pkts_fail));
     pthread_mutex_destroy(&single_pool.lock);

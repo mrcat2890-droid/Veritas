@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.1] - 2026-08-10
+
+### Fixed & Improved
+- **High-Performance Atomics (Lock-Free)**: Replaced `pthread_mutex_t` locking in the stress mode packet counting logic with C11 hardware-level `_Atomic` operations (`__atomic_fetch_add` and `atomic_load`). This completely eliminates thread contention across the injector thread pool, allowing maximum packet injection rates (PPS) during Mass Injection.
+- **Memory Integrity & Buffer Safety**: Removed deprecated `strcpy` function calls and replaced them with bounds-checked `snprintf`.
+- **Advanced Radiotap Bounds Checking**: Hardened the `parse_radiotap_rssi` function with strict boundary checks against the `rt_len` packet length to prevent segmentation faults (Segfaults) when parsing corrupted or maliciously malformed beacon frames in the air.
+
+---
+
 ## [4.5.0] - 2026-08-09
 
 ### Added & Improved
