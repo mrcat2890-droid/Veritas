@@ -118,8 +118,12 @@ Mode ini terinspirasi dari `mdk4`. VERITAS tidak memerlukan BSSID target tertent
 # Uji stress pada spektrum 2.4GHz
 sudo ./veritas --stress
 
-# Uji stress pada spektrum Dual-Band (2.4GHz + 5GHz)
+# Uji stress pada spektrum Dual-Band (2.4GHz + 5GHz) dengan Single Radio
 sudo ./veritas --stress --5ghz
+
+# Uji stress pada spektrum Dual-Band secara paralel (Multi-Radio Load Balancing)
+# wlan0 akan dikhususkan untuk 2.4GHz, wlan1 untuk 5GHz
+sudo ./veritas --stress --5ghz --dual wlan1
 ```
 
 ---

@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.2] - 2026-08-11
+
+### Added
+- **Multi-Radio (Interface) Load Balancing**: The `--dual <iface>` flag is now globally supported. In Stress Mode, it splits the injection workload seamlessly. Radio 1 locks onto the 2.4GHz spectrum while Radio 2 handles the 5GHz spectrum, effectively eliminating channel hopping delays and maximizing dual-band PPS (Packets Per Second).
+
+### Fixed & Improved
+- **System Call Fast-Path (mono_us)**: Optimized the internal `mono_us()` timestamp generator by replacing heavy `clock_gettime` syscalls with a thread-local static cached counter. This drastically reduces CPU context switching overhead during aggressive frame injections across all vectors.
+- **Lock-Free PRNG Cache (rand_mac)**: Reworked the MAC address spoofing engine. It now utilizes a thread-local `xorshift64` cache rather than standard library `rand()` mutex locks or slow `/dev/urandom` disk reads, ensuring collision-free and instant MAC generation in multithreaded stress pools.
+
+---
+
 ## [4.5.0] - 2026-08-09
 
 ### Added & Improved
