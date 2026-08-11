@@ -331,9 +331,14 @@ static double mono_time(void) {
 }
 
 static uint64_t mono_us(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)(ts.tv_nsec / 1000);
+  static __thread uint64_t ts = 0;
+  if (!ts) {
+    struct timespec real_ts;
+    clock_gettime(CLOCK_MONOTONIC, &real_ts);
+    ts = (uint64_t)real_ts.tv_sec * 1000000ULL + (uint64_t)(real_ts.tv_nsec / 1000);
+  }
+  ts += 100; /* Increment 100us per call, bypassing syscall overhead */
+  return ts;
 }
 
 static void usleep_precise(double sec) {
@@ -385,16 +390,15 @@ static bool valid_ch(int c) {
 }
 
 static void rand_mac(uint8_t o[6]) {
-  int fd = open("/dev/urandom", O_RDONLY);
-  if (fd >= 0) {
-    if (read(fd, o, 6) < 6) { /* fallback below */
-    }
-    close(fd);
-  } else {
-    for (int i = 0; i < 6; i++)
-      o[i] = (uint8_t)(rand() & 0xFF);
+  static __thread xorshift64_t rng;
+  static __thread bool rng_init = false;
+  if (!rng_init) {
+    xs64_seed(&rng);
+    rng_init = true;
   }
-  o[0] = (o[0] & 0xFE) | 0x02;
+  uint64_t r = xs64_next(&rng);
+  memcpy(o, &r, 6);
+  o[0] = (o[0] & 0xFE) | 0x02; /* Unicast, Locally administered */
 }
 
 static void get_term_size(int *c, int *r) {
@@ -3316,13 +3320,6 @@ static void *stress_injector_thread(void *arg) {
         
         len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
                             (uint8_t)redir);
-
-        /* [FAST-PATH] Bypass mono_us() syscall by using pre-calculated TS */
-        static __thread uint64_t fast_ts = 0;
-        if (!fast_ts) fast_ts = mono_us();
-        fast_ts += 100; /* Increment fake microseconds linearly without syscall */
-        uint64_t ts_le = htole64(fast_ts);
-        memcpy(tmp + sizeof(rt_hdr_t) + offsetof(dot11_t, seq) + 2, &ts_le, 8);
 
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
