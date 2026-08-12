@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [4.6.0] - 2026-08-12
 
 ### Added
-- **Native TX-Power & Regulatory Domain Unlocker**: When launched in `--insane` mode, Veritas now automatically manipulates the Linux network stack (`iw reg set BO` and `iwconfig txpower 30`) to force the Wi-Fi interface into Bolivia's regulatory domain and unlocks transmission power to the absolute hardware maximum of 1000mW (30dBm) for extreme attack range.
+- **TX-Power & Regulatory Domain Unlock Guidance**: When launched in `--insane` mode, Veritas now warns and guides the user to manually manipulate the Linux network stack (`iw reg set BO` and `iwconfig txpower 30`) to unlock transmission power to the absolute hardware maximum of 1000mW (30dBm). The automatic execution was removed to prevent hardware monitor mode reset bugs.
 - **OUI-Aware Realistic MAC Spoofing**: Advanced WIPS/IDS evasion. `rand_mac()` no longer generates completely random, invalid vendor prefixes. It now selects from a hardcoded list of real vendors (Apple, Intel, Samsung, Broadcom, etc.) and correctly unsets the "Locally Administered" bit, making attack frames indistinguishable from legitimate smartphones and laptops.
 
 ### Fixed & Improved
