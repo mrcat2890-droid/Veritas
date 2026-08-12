@@ -1788,9 +1788,9 @@ static void start_rogue(const config_t *c, const target_ap_t *t) {
   snprintf(cmd_type, sizeof(cmd_type), "iw dev %s set type __ap 2>/dev/null",
            ifc);
   snprintf(cmd_up, sizeof(cmd_up), "ip link set %s up 2>/dev/null", ifc);
-  system(cmd_down);
-  system(cmd_type);
-  system(cmd_up);
+  if (system(cmd_down)) {}
+  if (system(cmd_type)) {}
+  if (system(cmd_up)) {}
 
   char path[128];
   snprintf(path, sizeof(path), "/tmp/veritas_rogue_%ld.conf", (long)time(NULL));
@@ -1854,12 +1854,12 @@ static void stop_rogue(const char *iface2) {
     if (g_rogue_iface[0]) {
       char cmd[128];
       snprintf(cmd, sizeof(cmd), "ip link set %s down 2>/dev/null", g_rogue_iface);
-      system(cmd);
+      if (system(cmd)) {}
       snprintf(cmd, sizeof(cmd), "iw dev %s set type monitor 2>/dev/null",
                g_rogue_iface);
-      system(cmd);
+      if (system(cmd)) {}
       snprintf(cmd, sizeof(cmd), "ip link set %s up 2>/dev/null", g_rogue_iface);
-      system(cmd);
+      if (system(cmd)) {}
       g_rogue_iface[0] = '\0';
     }
   }
@@ -4066,7 +4066,7 @@ int main(int argc, char **argv) {
 
   /* Script mode */
   if (argc >= 3 && strcmp(argv[1], "--script") == 0) {
-    system("clear");
+    if (system("clear")) {}
     printf("%s\n", BANNER);
     if (!preflight())
       return 1;
@@ -4074,7 +4074,7 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  system("clear");
+  if (system("clear")) {}
   printf("%s\n", BANNER);
   if (!preflight())
     return 1;
