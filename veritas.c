@@ -3771,22 +3771,24 @@ static void unlock_tx_power(const char *iface) {
   printf("  " C_YELLOW "[!] INSANE mode detected. Attempting to unlock TX power (30dBm) for %s..." RST "\n", iface);
   char cmd[256];
   
-  snprintf(cmd, sizeof(cmd), "ifconfig %s down 2>/dev/null", iface);
+  /* Set regulatory domain to BO (Bolivia) which allows 30dBm */
+  snprintf(cmd, sizeof(cmd), "iw reg set BO 2>/dev/null");
   int r1 = system(cmd);
   
-  snprintf(cmd, sizeof(cmd), "iw reg set BO 2>/dev/null");
+  /* Set txpower using modern iw command */
+  snprintf(cmd, sizeof(cmd), "iw dev %s set txpower fixed 3000 2>/dev/null", iface);
   int r2 = system(cmd);
   
-  snprintf(cmd, sizeof(cmd), "iwconfig %s txpower 30 2>/dev/null", iface);
-  int r3 = system(cmd);
+  /* Fallback to iwconfig if iw fails */
+  if (r2 != 0) {
+      snprintf(cmd, sizeof(cmd), "iwconfig %s txpower 30 2>/dev/null", iface);
+      r2 = system(cmd);
+  }
   
-  snprintf(cmd, sizeof(cmd), "ifconfig %s up 2>/dev/null", iface);
-  int r4 = system(cmd);
-  
-  if (r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0) {
+  if (r1 == 0 && r2 == 0) {
       printf("  " C_GREEN "[✓] TX power successfully unlocked to 30dBm (1000mW)!" RST "\n");
   } else {
-      printf("  " C_RED "[!] Failed to unlock TX power (iw/iwconfig missing or permission denied)." RST "\n");
+      printf("  " C_RED "[!] Failed to unlock TX power (missing iw/iwconfig or permission denied)." RST "\n");
   }
 }
 
