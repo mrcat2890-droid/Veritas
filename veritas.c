@@ -3065,9 +3065,11 @@ static void *stress_scanner_thread(void *arg) {
       .len = sizeof(bpf_code) / sizeof(bpf_code[0]),
       .filter = bpf_code,
   };
+  /* Temporarily disabled BPF to isolate the bug
   if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER, &bpf_prog, sizeof(bpf_prog)) < 0) {
       fprintf(stderr, "  " C_YELLOW "[!] Failed to attach BPF filter on %s, falling back to user-space filtering" RST "\n", a->iface);
   }
+  */
 
   uint8_t buf[4096];
   while (!g_stop) {
