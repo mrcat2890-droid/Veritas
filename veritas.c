@@ -2487,8 +2487,21 @@ static attack_mode_t menu_mode(void) {
     if (*p == '\n' || !*p)
       return MODE_MEDIUM;
     int s = atoi(p);
-    if (s >= 1 && s <= 5)
+    if (s >= 1 && s <= 5) {
+      if (s == 5) {
+          printf("\n  " C_YELLOW "[!] WARNING: INSANE mode requires maximum hardware TX power." RST "\n");
+          printf("  " C_YELLOW "    If your Wi-Fi card does not support this, or drops from monitor mode," RST "\n");
+          printf("  " C_YELLOW "    the scanner will go blind and targets will not appear." RST "\n");
+          printf("  " C_YELLOW "    Are you sure you want to proceed with INSANE mode? (y/N): " RST);
+          fflush(stdout);
+          char conf[16];
+          if (!fgets(conf, sizeof(conf), stdin) || (conf[0] != 'y' && conf[0] != 'Y')) {
+              printf("  " C_GREEN "    Returning to mode selection..." RST "\n\n");
+              continue;
+          }
+      }
       return (attack_mode_t)s;
+    }
   }
 }
 
@@ -3065,11 +3078,9 @@ static void *stress_scanner_thread(void *arg) {
       .len = sizeof(bpf_code) / sizeof(bpf_code[0]),
       .filter = bpf_code,
   };
-  /* Temporarily disabled BPF to isolate the bug
   if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER, &bpf_prog, sizeof(bpf_prog)) < 0) {
       fprintf(stderr, "  " C_YELLOW "[!] Failed to attach BPF filter on %s, falling back to user-space filtering" RST "\n", a->iface);
   }
-  */
 
   uint8_t buf[4096];
   while (!g_stop) {
@@ -3780,28 +3791,11 @@ static void export_report(const char *path, const stress_pool_t *pool,
 
 /* [FIX] Native TX-Power & Regulatory Domain Unlocker */
 static void unlock_tx_power(const char *iface) {
-  printf("  " C_YELLOW "[!] INSANE mode detected. Attempting to unlock TX power (30dBm) for %s..." RST "\n", iface);
-  char cmd[256];
-  
-  /* Set regulatory domain to BO (Bolivia) which allows 30dBm */
-  snprintf(cmd, sizeof(cmd), "iw reg set BO >/dev/null 2>&1");
-  system(cmd);
-  
-  /* Set txpower using modern iw command */
-  snprintf(cmd, sizeof(cmd), "iw dev %s set txpower fixed 3000 >/dev/null 2>&1", iface);
-  int r2 = system(cmd);
-  
-  /* Fallback to iwconfig if iw fails */
-  if (r2 != 0) {
-      snprintf(cmd, sizeof(cmd), "iwconfig %s txpower 30 >/dev/null 2>&1", iface);
-      r2 = system(cmd);
-  }
-  
-  if (r2 == 0) {
-      printf("  " C_GREEN "[✓] TX power successfully unlocked to 30dBm (1000mW)!" RST "\n");
-  } else {
-      printf("  " C_RED "[!] Failed to unlock TX power (hardware limit reached or tool missing). Proceeding with default power." RST "\n");
-  }
+  /* Changing regulatory domain or TX power while the interface is UP in monitor mode 
+     can cause some drivers to reset the PHY state, effectively blinding the interface 
+     and dropping it out of monitor mode at the hardware level. 
+     We instead warn the user to do it manually before starting the tool. */
+  printf("  " C_YELLOW "[!] INSANE mode detected. Note: For max performance, manually unlock TX power (e.g., iw reg set BO; iwconfig %s txpower 30) before running." RST "\n", iface);
 }
 
 /* ---- Stress Test Orchestrator ---- */
