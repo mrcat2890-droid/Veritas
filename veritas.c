@@ -4051,11 +4051,6 @@ static void run_stress(stress_cfg_t *cfg) {
 int main(int argc, char **argv) {
   srand((unsigned)time(NULL) ^ (unsigned)getpid());
 
-  if (getuid() != 0) {
-    printf(C_RED "[!] Run as root" RST "\n");
-    return 1;
-  }
-
   /* [FIX 40] --help */
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -4063,6 +4058,12 @@ int main(int argc, char **argv) {
       return 0;
     }
   }
+
+  if (getuid() != 0) {
+    printf(C_RED "[!] Run as root" RST "\n");
+    return 1;
+  }
+
 
   /* Script mode */
   if (argc >= 3 && strcmp(argv[1], "--script") == 0) {
