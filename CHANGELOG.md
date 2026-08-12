@@ -16,8 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [4.5.2] - 2026-08-11
+## [4.5.3] - 2026-08-12
 
+### Added
+- **Smart BPF (Berkeley Packet Filter) Kernel-Level Filtering**: Implemented a kernel-level raw socket filter using BPF assembly to silently drop non-Management 802.11 frames (such as Data and Control frames) before they reach user-space. This drastically reduces CPU consumption on scanner threads in highly congested environments.
+- **GitHub Actions CI/CD Integration**: Automated build and memory sanity tests using AddressSanitizer and UndefinedBehaviorSanitizer on every push and pull request via `.github/workflows/c-cpp.yml`.
+
+### Fixed & Improved
+- **PID Auto-Tuner for Buffer Bloat (Rate Controller)**: Replaced static thread sleep intervals in the injector loop with an intelligent AIMD (Additive Increase Multiplicative Decrease) feedback controller. The engine now dynamically monitors injection failure rates (`g_pkts_fail`) and automatically throttles or accelerates the packet transmission rate in real-time, preventing socket buffer bloat and ensuring the absolute maximum Packets Per Second (PPS) hardware limit is achieved safely.
+
+---
+
+## [4.5.2] - 2026-08-11
 ### Added
 - **Multi-Radio (Interface) Load Balancing**: The `--dual <iface>` flag is now globally supported. In Stress Mode, it splits the injection workload seamlessly. Radio 1 locks onto the 2.4GHz spectrum while Radio 2 handles the 5GHz spectrum, effectively eliminating channel hopping delays and maximizing dual-band PPS (Packets Per Second).
 
