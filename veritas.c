@@ -3032,20 +3032,30 @@ static void *stress_scanner_thread(void *arg) {
   /* 
    * [FIX] Smart BPF Kernel-Level Filtering 
    * Only pass Management frames (Type = 0) to user-space.
-   * We must read the radiotap length (byte 2-3, little endian), 
-   * jump over radiotap, and check Frame Control (Type is bits 2-3 of byte 0 of 802.11 header).
+   * Radiotap length is at byte 2-3 in LITTLE ENDIAN. BPF_H is Big Endian, 
+   * so we must read bytes individually to construct the correct length.
    */
   struct sock_filter bpf_code[] = {
-      /* ldh [2] -> Load radiotap length into A */
-      BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 2),
-      /* tax -> Transfer A to X */
+      /* A = buf[2] (rt_len LSB) */
+      BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 2),
+      /* X = A */
       BPF_STMT(BPF_MISC | BPF_TAX, 0),
-      /* ldb [x + 0] -> Load Frame Control byte 1 (at offset X) into A */
+      /* A = buf[3] (rt_len MSB) */
+      BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 3),
+      /* A = A << 8 */
+      BPF_STMT(BPF_ALU | BPF_LSH | BPF_K, 8),
+      /* A = A + X (A now contains little-endian rt_len) */
+      BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0),
+      /* X = A (Transfer rt_len to X for indexed addressing) */
+      BPF_STMT(BPF_MISC | BPF_TAX, 0),
+      
+      /* A = buf[X + 0] (Load Frame Control byte 1) */
       BPF_STMT(BPF_LD | BPF_B | BPF_IND, 0),
-      /* and 0x0C -> Mask the Type bits (0000 1100) */
+      /* A = A & 0x0C (Mask the Type bits: 0000 1100) */
       BPF_STMT(BPF_ALU | BPF_AND | BPF_K, 0x0C),
-      /* jeq 0, keep, drop -> If Type == 0 (Management), keep it */
+      /* If A == 0 (Management Frame), jump 0 (keep), else jump 1 (drop) */
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1),
+      
       /* keep: ret -1 (return whole packet) */
       BPF_STMT(BPF_RET | BPF_K, ~0U),
       /* drop: ret 0 (drop packet) */
