@@ -127,7 +127,7 @@ static const char *BANNER =
  *               CONSTANTS
  * ============================================================ */
 
-#define VERSION "4.4.0"
+#define VERSION "4.6.0"
 #define MAX_SSID_LEN 32
 #define MAX_MAC_STR 18
 #define MAX_IFACE 32

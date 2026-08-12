@@ -16,9 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [4.5.3] - 2026-08-12
+## [4.6.0] - 2026-08-12
 
 ### Added
+- **Native TX-Power & Regulatory Domain Unlocker**: When launched in `--insane` mode, Veritas now automatically manipulates the Linux network stack (`iw reg set BO` and `iwconfig txpower 30`) to force the Wi-Fi interface into Bolivia's regulatory domain and unlocks transmission power to the absolute hardware maximum of 1000mW (30dBm) for extreme attack range.
+- **OUI-Aware Realistic MAC Spoofing**: Advanced WIPS/IDS evasion. `rand_mac()` no longer generates completely random, invalid vendor prefixes. It now selects from a hardcoded list of real vendors (Apple, Intel, Samsung, Broadcom, etc.) and correctly unsets the "Locally Administered" bit, making attack frames indistinguishable from legitimate smartphones and laptops.
+
+### Fixed & Improved
+- **Zero-Copy Packet Templating (Optimasi Injeksi Ekstrem)**: Massively optimized the `stress_injector_thread` by pre-building attack packet templates (e.g., Deauth Flood) outside the hot loop. During injection, Veritas now uses raw pointer arithmetic to overwrite only the 6-byte target BSSID and 2-byte Sequence Control field, saving thousands of `memcpy` and function calls per second and maximizing PPS throughput.
+- **AP Pool Sharding (Multi-Threading Load Balancer)**: Redesigned the dual-radio injection architecture. `run_stress()` now spawns strictly isolated injector threads: Injector 1 handles *only* 2.4GHz channels, and Injector 2 handles *only* 5GHz channels. This completely eliminates redundant socket writes and prevents thread overlap, resulting in perfectly load-balanced multi-band mass injection.
+
+---
+
+## [4.5.3] - 2026-08-12
 - **Smart BPF (Berkeley Packet Filter) Kernel-Level Filtering**: Implemented a kernel-level raw socket filter using BPF assembly to silently drop non-Management 802.11 frames (such as Data and Control frames) before they reach user-space. This drastically reduces CPU consumption on scanner threads in highly congested environments.
 - **GitHub Actions CI/CD Integration**: Automated build and memory sanity tests using AddressSanitizer and UndefinedBehaviorSanitizer on every push and pull request via `.github/workflows/c-cpp.yml`.
 

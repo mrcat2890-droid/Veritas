@@ -6,7 +6,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(AF__PACKET)-red.svg)](https://kernel.org)
 [![Bahasa](https://img.shields.io/badge/Bahasa-C11%20%2F%20Python3-00599C.svg)](veritas.c)
 [![Status Kompilasi](https://img.shields.io/badge/Kompilasi-Berhasil-brightgreen.svg)](Makefile)
-[![Versi](https://img.shields.io/badge/Versi-4.5.0-cyan.svg)](veritas.c)
+[![Versi](https://img.shields.io/badge/Versi-4.6.0-cyan.svg)](veritas.c)
 
 **VERITAS** (*Channel Switch Announcement Attack & Audit Framework*) adalah perkakas evaluasi keamanan nirkabel berkinerja tinggi berbasis C11 murni dan Python 3. Perkakas ini dirancang khusus untuk audit jaringan Wi-Fi, manipulasi standar IEEE 802.11h CSA, penyerangan fragmen *FragAttack*, agresivitas kanal DFS (*Operating Channel Aggression*), dan penyebaran Titik Akses Palsu (*Rogue Access Point*). Dibangun kembali dari awal untuk menggantikan kerangka kerja Python yang berat, VERITAS versi C11 mampu menyuntikkan paket data langsung ke soket mentah (*raw socket*) dengan kecepatan melebihi 5.000 paket per detik (PPS) serta didukung pengontrol laju presisi berakurasi sub-milidetik.
 
@@ -14,9 +14,12 @@
 
 ## ⚡ Fitur Utama
 
-- **🚀 Injeksi Berkecepatan Tinggi**: Dibangun menggunakan soket mentah `AF_PACKET` dengan metode pengiriman massal `sendmmsg()` (hingga 16 paket per satu panggilan sistem/*syscall*) serta optimasi memori pemancar kernel hingga 2MB (`SO_SNDBUF`).
+- **🚀 Injeksi Berkecepatan Tinggi (Zero-Copy Templating)**: Memanfaatkan teknik pembaruan *memory pointer* mentah tanpa penyalinan data (*Zero-Copy*) dipadukan dengan soket mentah `AF_PACKET` dan mode transmisi massal `sendmmsg()` (hingga 16 paket per satu panggilan sistem/*syscall*) serta optimasi memori pemancar kernel hingga 2MB (`SO_SNDBUF`).
+- **🥷 Bypass IDS/WIPS & OUI Spoofing**: Menghasilkan pemalsuan *MAC Address* berlapis (*OUI-Aware Spoofing*) yang dirancang khusus agar menyamar sebagai vendor gawai sah (Apple, Intel, Samsung) tanpa memicu alarm deteksi berbasis anomali dari sistem pertahanan nirkabel korporat (WIPS/IDS).
+- **📡 Native TX-Power & Regulatory Domain Unlocker**: Fitur otomatis memutus batasan daya pancar Kernel Linux hingga 1000mW (30dBm) ketika dieksekusi dengan mode tempur tinggi (`--insane`) untuk jangkauan serangan absolut (Wajib Root).
 - **🔍 Pembuka Jaringan Tersembunyi Active Probe Sweep (`--unmask-hidden`)**: Menyuntikkan *Probe Request Broadcast* secara aktif dan mengekstrak *Probe Response* serta *Directed Probe Request* untuk membuka identitas nama SSID yang disembunyikan (*Hidden SSID*) secara real-time.
 - **🔒 Mesin Multithread Tanpa Pengunci (*Lock-Free Engine*)**: Eksekusi pengujian multi-vektor secara bersamaan ditenagai oleh `<stdatomic.h>` dan deskriptor soket per-utas (*per-thread*) untuk mencegah hambatan antrean memori.
+- **⚖️ AP Pool Sharding (Multi-Threading Load Balancer)**: Pada skenario Dual-Band, pembelahan beban kerja *Thread* dilakukan secara terisolasi penuh. *Injector* Radio 1 memfokuskan transmisi ke saluran 2.4GHz, dan Radio 2 berfokus penuh ke 5GHz, menghilangkan tumpang tindih jaringan (*network overlap*) pada mode injeksi massal.
 - **🎯 16 Vektor Serangan Khusus**:
   1. `CSA Beacon Flood`: Banjir *Beacon* pengalihan saluran IEEE 802.11h.
   2. `Quiet Element DoS`: Penghentian komunikasi nirkabel berbasis elemen *Quiet* 802.11h.
