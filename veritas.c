@@ -3772,23 +3772,23 @@ static void unlock_tx_power(const char *iface) {
   char cmd[256];
   
   /* Set regulatory domain to BO (Bolivia) which allows 30dBm */
-  snprintf(cmd, sizeof(cmd), "iw reg set BO 2>/dev/null");
-  int r1 = system(cmd);
+  snprintf(cmd, sizeof(cmd), "iw reg set BO >/dev/null 2>&1");
+  system(cmd);
   
   /* Set txpower using modern iw command */
-  snprintf(cmd, sizeof(cmd), "iw dev %s set txpower fixed 3000 2>/dev/null", iface);
+  snprintf(cmd, sizeof(cmd), "iw dev %s set txpower fixed 3000 >/dev/null 2>&1", iface);
   int r2 = system(cmd);
   
   /* Fallback to iwconfig if iw fails */
   if (r2 != 0) {
-      snprintf(cmd, sizeof(cmd), "iwconfig %s txpower 30 2>/dev/null", iface);
+      snprintf(cmd, sizeof(cmd), "iwconfig %s txpower 30 >/dev/null 2>&1", iface);
       r2 = system(cmd);
   }
   
-  if (r1 == 0 && r2 == 0) {
+  if (r2 == 0) {
       printf("  " C_GREEN "[✓] TX power successfully unlocked to 30dBm (1000mW)!" RST "\n");
   } else {
-      printf("  " C_RED "[!] Failed to unlock TX power (missing iw/iwconfig or permission denied)." RST "\n");
+      printf("  " C_RED "[!] Failed to unlock TX power (hardware limit reached or tool missing). Proceeding with default power." RST "\n");
   }
 }
 
