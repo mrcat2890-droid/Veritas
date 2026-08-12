@@ -62,6 +62,7 @@
 #include <glob.h>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
+#include <linux/filter.h>
 #include <math.h>
 #include <net/if.h>
 #include <pthread.h>
@@ -3001,6 +3002,36 @@ static void *stress_scanner_thread(void *arg) {
   int igo = 1;
   setsockopt(sock, SOL_PACKET, PACKET_IGNORE_OUTGOING, &igo, sizeof(igo));
 
+  /* 
+   * [FIX] Smart BPF Kernel-Level Filtering 
+   * Only pass Management frames (Type = 0) to user-space.
+   * We must read the radiotap length (byte 2-3, little endian), 
+   * jump over radiotap, and check Frame Control (Type is bits 2-3 of byte 0 of 802.11 header).
+   */
+  struct sock_filter bpf_code[] = {
+      /* ldh [2] -> Load radiotap length into A */
+      BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 2),
+      /* tax -> Transfer A to X */
+      BPF_STMT(BPF_MISC | BPF_TAX, 0),
+      /* ldb [x + 0] -> Load Frame Control byte 1 (at offset X) into A */
+      BPF_STMT(BPF_LD | BPF_B | BPF_IND, 0),
+      /* and 0x0C -> Mask the Type bits (0000 1100) */
+      BPF_STMT(BPF_ALU | BPF_AND | BPF_K, 0x0C),
+      /* jeq 0, keep, drop -> If Type == 0 (Management), keep it */
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1),
+      /* keep: ret -1 (return whole packet) */
+      BPF_STMT(BPF_RET | BPF_K, ~0U),
+      /* drop: ret 0 (drop packet) */
+      BPF_STMT(BPF_RET | BPF_K, 0),
+  };
+  struct sock_fprog bpf_prog = {
+      .len = sizeof(bpf_code) / sizeof(bpf_code[0]),
+      .filter = bpf_code,
+  };
+  if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER, &bpf_prog, sizeof(bpf_prog)) < 0) {
+      fprintf(stderr, "  " C_YELLOW "[!] Failed to attach BPF filter on %s, falling back to user-space filtering" RST "\n", a->iface);
+  }
+
   uint8_t buf[4096];
   while (!g_stop) {
     /* Active Probe Request sweep when unmask_hidden is enabled */
@@ -3473,7 +3504,31 @@ static void *stress_injector_thread(void *arg) {
       usleep_precise(base_sleep);
     }
 
-    /* Inter-round sleep */
+    /* [FIX] PID Auto-Tuner for Buffer Bloat (Rate Controller) */
+    static uint64_t last_sent = 0;
+    static uint64_t last_fail = 0;
+    uint64_t curr_sent = atomic_load(&g_pkts_sent);
+    uint64_t curr_fail = atomic_load(&g_pkts_fail);
+    
+    uint64_t d_sent = curr_sent - last_sent;
+    uint64_t d_fail = curr_fail - last_fail;
+    last_sent = curr_sent;
+    last_fail = curr_fail;
+
+    if (d_sent + d_fail > 100) { /* only adjust if we have enough sample size */
+        double fail_rate = (double)d_fail / (double)(d_sent + d_fail);
+        if (fail_rate > 0.05) {
+            /* High failure rate: Buffer Bloat detected. Additive Increase (Slow Down) */
+            base_sleep += 0.0005; 
+            if (base_sleep > 0.1) base_sleep = 0.1; /* Max sleep cap */
+        } else if (fail_rate == 0.0) {
+            /* Zero failures: Hardware can take more. Multiplicative Decrease (Speed Up) */
+            base_sleep *= 0.95;
+            if (base_sleep < 0.00001) base_sleep = 0.00001; /* Floor */
+        }
+    }
+
+    /* Inter-round sleep using the dynamically tuned value */
     usleep_precise(base_sleep * 2);
   }
 
