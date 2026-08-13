@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.7.2] - 2026-08-13
+
+### Fixed — Critical Bugs (Audit Batch [FIX 47])
+
+- **[KRITIS] Zero-Copy Offset Korupsi Paket**: Seluruh kode *zero-copy template* di `stress_injector_thread` (Deauth, EAPOL Logoff, Auth DoS, Beacon Confusion, Quiet Element) menggunakan offset byte yang **salah 4-6 byte** untuk menulis alamat MAC dan *Sequence Control*. Offset hardcoded (`+10`, `+16`, `+22`, `+28`) menimpa field `Frame Control` dan `Duration` alih-alih `addr2`/`addr3`/`seq`, menyebabkan setiap paket zero-copy yang terkirim menjadi *malformed* dan ditolak oleh perangkat target. Diperbaiki dengan menambahkan konstanta `OFF_A1`/`OFF_A2`/`OFF_A3`/`OFF_SEQ`/`OFF_BODY` yang dihitung otomatis dari `sizeof(rt_hdr_t)` + `offsetof(dot11_t, ...)`.
+- **[KRITIS] DELBA TID Params Offset Salah**: Kode DELBA menulis parameter TID ke offset `+32` (yang merupakan field *Sequence Control*), bukan ke offset `+36` (yang merupakan DELBA Params setelah category+action). Akibatnya rotasi TID 0-7 **tidak pernah benar-benar mengubah TID** di paket yang terkirim. Diperbaiki ke `OFF_BODY + 2`.
+- **[SEDANG] PID Auto-Tuner Race Condition**: Variabel `static uint64_t last_sent/last_fail` di dalam `stress_injector_thread` di-share antar semua thread tanpa proteksi (*data race*). Pada mode dual-radio, kedua thread secara bersamaan membaca/menulis state PID, menyebabkan kalkulasi `fail_rate` yang acak dan *rate limiter* yang tidak stabil. Diperbaiki menjadi variabel lokal per-thread.
+- **[SEDANG] Sequence Number Overflow**: `seq` (uint16_t) di-increment tanpa masking, menyebabkan `seq << 4` meluap dari 16 bit saat `seq >= 4096`. Diperbaiki dengan masking `(seq & 0xFFF)` di semua titik penggunaan.
+- **[MINOR] Dead Code Quiet Element**: Kode manipulasi byte `tpl_quiet` yang tidak pernah digunakan (selalu di-override oleh `mk_quiet_beacon()`) telah dihapus bersama alokasi template `tpl_quiet` dan `tpl_confusion` yang tidak terpakai.
+
+---
+
 ## [4.7.1] - 2026-08-13
 
 ### Changed & Removed

