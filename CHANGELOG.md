@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.7.3] - 2026-08-13
+
+### Upgraded — Tactical Vector Enhancement
+
+- **[UPGRADE] ECSA & Quiet Element Stacking (Vector #1: CSA)**: 
+  - Vektor *Channel Switch Announcement* (CSA) telah ditingkatkan dari CSA standar (IE 37) menjadi serangan bertumpuk yang menyertakan **Extended CSA (IE 60)**.
+  - Ini mengeksploitasi klien modern 5GHz/WiFi-6 (Android/iOS terbaru) yang mem-filter CSA lama jika tidak ada *Operating Class*.
+  - Khusus untuk `CSA Action Frame`, *Quiet Element* (IE 40) sekarang disusupkan (*piggybacked*) langsung di dalam tubuh ECSA. Ini memaksa radio klien melakukan *TX Pause* / *Radio Silence* bersamaan dengan perintah pindah kanal, menciptakan benturan ganda di level *driver* klien.
+- **[UPGRADE] Firmware Watchdog Evasion (Intel 8265/9260 dkk)**:
+  - Chipset Wi-Fi sensitif seperti Intel Corporation Wireless 8265 / 8275 (rev 78) sering terlempar dari *monitor mode* jika dipaksa menembak dengan intensitas *Insane* (buffer *DMA* penuh → *firmware panic reset*).
+  - *PID Auto-Tuner* sekarang dilengkapi mekanisme pengereman darurat (*Hard Braking*). Jika *fail rate* mendadak melonjak melampaui 30%, injektor akan melakukan *Hardware Cooldown* instan (jeda mutlak 100 milidetik) dan memperlambat *base sleep* secara agresif. Ini mencegah cip Intel mengalami *overload* tanpa mengorbankan rata-rata tembakan PPS secara keseluruhan.
+- **[UPGRADE] WIPS Evasion Padding (Vector #3 & #4: Deauth/Disassoc)**:
+  - Pembentuk paket *Deauthentication* dan *Disassociation* kini menyisipkan **Vendor Specific IE (ID 221)** ke bagian ekor (*payload padding*).
+  - IE yang disisipkan meniru *signature* ekstensi Microsoft WMM/WME. 
+  - Penambahan ini menghancurkan bentuk paket statis 26-byte konvensional (ukuran standar alat peretasan), menembus deteksi WIPS (Wireless Intrusion Prevention System) berbasis ukuran (*size-based signature evasion*), sekaligus memicu ketidakstabilan pada *driver* klien yang buruk saat membaca ekor paket pemutusan.
+---
+
 ## [4.7.2] - 2026-08-13
 
 ### Fixed — Critical Bugs (Audit Batch [FIX 47])
