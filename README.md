@@ -1,4 +1,4 @@
-# VERITAS v4.5 — Kerangka Kerja Audit Keamanan & Pengujian Presisi Wi-Fi 802.11 CSA
+# VERITAS v4.7 — Kerangka Kerja Audit Keamanan & Pengujian Presisi Wi-Fi 802.11 CSA
 
 ![Banner VERITAS](assets/banner.png)
 
@@ -6,7 +6,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(AF__PACKET)-red.svg)](https://kernel.org)
 [![Bahasa](https://img.shields.io/badge/Bahasa-C11%20%2F%20Python3-00599C.svg)](veritas.c)
 [![Status Kompilasi](https://img.shields.io/badge/Kompilasi-Berhasil-brightgreen.svg)](Makefile)
-[![Versi](https://img.shields.io/badge/Versi-4.6.0-cyan.svg)](veritas.c)
+[![Versi](https://img.shields.io/badge/Versi-4.7.0-cyan.svg)](veritas.c)
 
 **VERITAS** (*Channel Switch Announcement Attack & Audit Framework*) adalah perkakas evaluasi keamanan nirkabel berkinerja tinggi berbasis C11 murni dan Python 3. Perkakas ini dirancang khusus untuk audit jaringan Wi-Fi, manipulasi standar IEEE 802.11h CSA, penyerangan fragmen *FragAttack*, agresivitas kanal DFS (*Operating Channel Aggression*), dan penyebaran Titik Akses Palsu (*Rogue Access Point*). Dibangun kembali dari awal untuk menggantikan kerangka kerja Python yang berat, VERITAS versi C11 mampu menyuntikkan paket data langsung ke soket mentah (*raw socket*) dengan kecepatan melebihi 5.000 paket per detik (PPS) serta didukung pengontrol laju presisi berakurasi sub-milidetik.
 
@@ -20,7 +20,7 @@
 - **🔍 Pembuka Jaringan Tersembunyi Active Probe Sweep (`--unmask-hidden`)**: Menyuntikkan *Probe Request Broadcast* secara aktif dan mengekstrak *Probe Response* serta *Directed Probe Request* untuk membuka identitas nama SSID yang disembunyikan (*Hidden SSID*) secara real-time.
 - **🔒 Mesin Multithread Tanpa Pengunci (*Lock-Free Engine*)**: Eksekusi pengujian multi-vektor secara bersamaan ditenagai oleh `<stdatomic.h>` dan deskriptor soket per-utas (*per-thread*) untuk mencegah hambatan antrean memori.
 - **⚖️ AP Pool Sharding (Multi-Threading Load Balancer)**: Pada skenario Dual-Band, pembelahan beban kerja *Thread* dilakukan secara terisolasi penuh. *Injector* Radio 1 memfokuskan transmisi ke saluran 2.4GHz, dan Radio 2 berfokus penuh ke 5GHz, menghilangkan tumpang tindih jaringan (*network overlap*) pada mode injeksi massal.
-- **🎯 16 Vektor Serangan Khusus**:
+- **🎯 20 Vektor Serangan Khusus**:
   1. `CSA Beacon Flood`: Banjir *Beacon* pengalihan saluran IEEE 802.11h.
   2. `Quiet Element DoS`: Penghentian komunikasi nirkabel berbasis elemen *Quiet* 802.11h.
   3. `Bidirectional Deauth Flood`: Pemutusan hubungan dua arah selang-seling (AP → Klien dan Klien → AP).
@@ -37,6 +37,10 @@
   14. `Power Save DoS`: Pemalsuan indikator *Power Save* (*TIM Element*) untuk menahan paket data klien.
   15. `FragAttack Injection` (CVE-2020-24588): Manipulasi *header* fragmentasi untuk menyuntikkan data teks polos (*plaintext*) tanpa perlu mengetahui kata sandi Wi-Fi.
   16. `Operating Channel Aggression (DFS Fake Radar)`: Pemalsuan deteksi radar militer/cuaca pada kanal DFS 5 GHz melalui *Measurement Report* (bit Radar) + *Beacon* CSA `stop-TX`, memaksa AP mematikan kanal dan mengunci transmisi selama beberapa menit sesuai regulasi DFS penerbangan.
+  17. `CTS/RTS Virtual Jammer` (**BARU**): Memancarkan paket *Clear to Send* (CTS) dengan nilai *Duration Field* (NAV) maksimum (32767 µs), memaksa semua perangkat di frekuensi udara terdiam patuh. Sangat efektif melumpuhkan router tangguh seperti Huawei tanpa memutus status koneksi fisik.
+  18. `WPA3 SAE Hunting & Puzzling` (**BARU**): Membanjiri permintaan jabat tangan WPA3 SAE Commit yang memaksa router melakukan kalkulasi matematika kurva eliptik (ECDH) secara massal, menguras CPU router modern hingga 100% dan memicu *hang* atau *crash* akibat kelelahan komputasi (*Crypto Puzzle Exhaustion* / CVE-2019-9494 Dragonblood).
+  19. `BSS Transition Attack (802.11v Steer)` (**BARU**): Mengirimkan paket manajemen *BSS Transition Request* palsu atas nama router utama, memaksa perangkat korban berpindah (*roaming*) ke jaringan tiruan (*Rogue AP*) secara halus tanpa kecurigaan sistem.
+  20. `Beacon Report Drain (Battery Exploitation)` (**BARU**): Mengirimkan *Radio Measurement Request* secara terus-menerus ke HP/laptop target, memaksa perangkat korban memindai (*scan*) seluruh frekuensi latar belakang tanpa henti, menguras baterai hingga cepat habis dan panas ekstrem.
 - **🌐 Dukungan Dual-Band (2.4GHz / 5GHz) & Peka DFS**: Mendukung penuh saluran frekuensi tinggi 5GHz (saluran 36–165), konfigurasi VHT `hostapd` 802.11ac, serta peringatan otomatis untuk saluran DFS (52–64, 100–144).
 - **💥 Mode Uji Stress Lapangan / Injeksi Massal (Gaya mdk4)**: Memindai seluruh sinyal nirkabel di udara secara pasif, membangun daftar AP secara otomatis, dan menginjeksi serangan ke seluruh AP yang terdeteksi secara simultan dengan *channel hopping* otomatis di spektrum 2.4GHz dan 5GHz.
 - **⏱️ Pengontrol Laju Berbasis Sliding Window PID**: Mesin pengontrol laju transmisi berbasis algoritma PID pada setiap utas memastikan kelancaran injeksi sesuai mode agresivitas (`STEALTH` ~20 PPS hingga `INSANE` ~5000 PPS).

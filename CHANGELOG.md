@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.7.0] - 2026-08-13
+
+### Added — 4 New Attack Vectors (Total: 20)
+- **Vector #17 — CTS/RTS Virtual Jammer**: Transmits spoofed Clear-To-Send (CTS) control frames with the Duration/NAV field set to the maximum value of 32767 µs. All 802.11-compliant devices on the same frequency will honor the NAV and remain silent, causing Virtual Jamming without disrupting physical connections. Highly effective against robust routers (e.g. Huawei) that are resilient to Deauth/Disassoc but still honor NAV timing.
+- **Vector #18 — WPA3 SAE Hunting & Puzzling**: Floods SAE (Simultaneous Authentication of Equals) Commit frames with random source MACs. Each SAE Commit forces the target AP to perform computationally expensive Elliptic Curve Diffie-Hellman (ECDH) "hunting-and-pecking" operations. Tactical effect: AP CPU saturates at 100% from continuous cryptographic puzzle computation, causing hang/crash (Crypto Puzzle Exhaustion / CVE-2019-9494 Dragonblood).
+- **Vector #19 — BSS Transition Attack (802.11v Steer)**: Sends spoofed BSS Transition Management Request (Action frame, Category=10 WNM, Action=7) pretending to originate from the legitimate AP, directing connected clients to roam to a rogue BSSID via Neighbor Report IE with Disassociation Imminent bit set.
+- **Vector #20 — Beacon Report Drain (Battery Exploitation)**: Sends Radio Measurement Request (Action frame, Category=5, Action=0) demanding the target device perform continuous Beacon Report scans across ALL channels/operating classes with maximum repetitions (65535). Drains mobile device battery at extreme speed due to non-stop background scanning.
+
+### Fixed
+- **INSANE Mode Monitor Drop (Critical Bug)**: Removed the automatic `iw reg set BO` / `iwconfig txpower 30` system calls from `unlock_tx_power()` that were causing a PHY state reset while the interface was in active monitor mode, effectively blinding the scanner thread and killing stress mode.
+- **INSANE Mode Safety Confirmation**: Added interactive warning and confirmation prompt when selecting INSANE mode (level 5) in the aggressiveness menu, informing users about potential hardware limitations before proceeding.
+- **`system()` Unused Return Value (CI/CD Fix)**: Wrapped all `system()` calls with return value checks to eliminate `-Werror=unused-result` build failures in GitHub Actions CI.
+- **`--help` Without Root**: Moved the `--help` flag check before the `getuid() != 0` guard in `main()`, allowing users to view help without requiring `sudo`.
+
+---
+
 ## [4.5.1] - 2026-08-10
 
 ### Fixed & Improved
