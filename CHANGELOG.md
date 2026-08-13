@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Pembentuk paket *Deauthentication* dan *Disassociation* kini menyisipkan **Vendor Specific IE (ID 221)** ke bagian ekor (*payload padding*).
   - IE yang disisipkan meniru *signature* ekstensi Microsoft WMM/WME. 
   - Penambahan ini menghancurkan bentuk paket statis 26-byte konvensional (ukuran standar alat peretasan), menembus deteksi WIPS (Wireless Intrusion Prevention System) berbasis ukuran (*size-based signature evasion*), sekaligus memicu ketidakstabilan pada *driver* klien yang buruk saat membaca ekor paket pemutusan.
+- **[FITUR BARU] Full WPA2/WPA3 4-Way Handshake Capture (.pcap)**:
+  - `capture_thread` sekarang dilengkapi penulis `.pcap` ringan bawaan (tanpa dependensi `libpcap`).
+  - Tidak lagi hanya menangkap M1 (PMKID), Veritas kini akan merekam *seluruh paket EAPOL* (M1, M2, M3, M4) ke dalam format `.pcap` standar yang dapat langsung dibaca oleh Wireshark, Hashcat (`hcxpcapngtool`), maupun Aircrack-ng.
+- **[MANAJEMEN ARTEFAK] Persistensi Output (Direktori `./out/`)**:
+  - Semua penulisan file sementara atau hasil tangkapan (contoh: konfigurasi *Rogue AP*, file `.22000` PMKID, hasil pindaian `airodump-ng`, dan tangkapan `.pcap` EAPOL) telah dipindahkan dari `/tmp/` ke direktori kerja `./out/`.
+  - Ini mencegah hilangnya data berharga (*handshake* / konfigurasi) akibat proses pembersihan OS, dan menyelesaikan potensi masalah izin akses (permission collision) di lingkungan Termux/NetHunter pada platform Android.
 ---
 
 ## [4.7.2] - 2026-08-13
