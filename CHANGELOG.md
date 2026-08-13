@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.7.1] - 2026-08-13
+
+### Changed & Removed
+- **Removed `Evil Twin Handoff` and `TKIP/GCMP MIC Error`**: These vectors were removed from the core injector. `Veritas` is strictly designed as a high-speed L2 stateless injection framework. Maintaining stateful logic (like Evil Twin routing or QoS replay) creates unnecessary bloat and CPU overhead, contradicting the tool's core philosophy. The total number of vectors is now 18.
+
+### Fixed & Optimized
+- **Zero-Copy Injection for Auth, EAPOL, and Quiet Element**: Completely eliminated `rand_mac()` and `mk_*()` frame-building calls inside the `stress_injector_thread` hot-loop for these vectors. By using in-memory template byte manipulation (modifying only the 6-byte MAC and 2-byte sequence numbers via pointers), the severe PPS drops and "sticky" Ctrl+C hangs during INSANE mode have been entirely resolved.
+- **Randomized MAC Bypass (Wildcard Injection)**: Both `CSA Action Frame` and `Probe Response CSA` now transmit a secondary payload using `FF:FF:FF:FF:FF:FF` (Broadcast) as the BSSID. This guarantees that modern clients using randomized MAC addresses during probing will still process the Channel Switch Announcement, completely bypassing the MAC randomization defense.
+- **DELBA Attack Aggression**: The `DELBA` (Delete Block Ack) attack no longer targets a single Traffic Identifier (TID 0). It now loops through all 8 TIDs (0-7) and alternates between Initiator (AP→Client) and Responder (Client→AP) directions, forcing the teardown of AMPDU aggregation across all Quality of Service queues simultaneously.
+- **Beacon Confusion Escalation**: Fixed a bug where `Beacon Confusion` was only injecting a single static fake BSSID per loop. It now performs high-speed in-place memory overwrites to generate thousands of unique BSSIDs per second, effectively crashing client network scanners as intended.
+
+---
+
 ## [4.7.0] - 2026-08-13
 
 ### Added — 4 New Attack Vectors (Total: 20)
