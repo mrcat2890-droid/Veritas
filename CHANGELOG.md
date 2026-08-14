@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[MANAJEMEN ARTEFAK] Persistensi Output (Direktori `./out/`)**:
   - Semua penulisan file sementara atau hasil tangkapan (contoh: konfigurasi *Rogue AP*, file `.22000` PMKID, hasil pindaian `airodump-ng`, dan tangkapan `.pcap` EAPOL) telah dipindahkan dari `/tmp/` ke direktori kerja `./out/`.
   - Ini mencegah hilangnya data berharga (*handshake* / konfigurasi) akibat proses pembersihan OS, dan menyelesaikan potensi masalah izin akses (permission collision) di lingkungan Termux/NetHunter pada platform Android.
+- **[UPGRADE] Rotasi Reason Code Disassoc (Vector #4)**:
+  - `Disassociation` sebelumnya hanya menggunakan 1 reason code statis (`8`). Kini menggunakan **8 reason code berbeda** (`1,3,4,6,7,8,17,23`) yang dirotasi — identik dengan `Deauthentication`. Ini menghancurkan deteksi WIPS berbasis pola monoton.
+- **[UPGRADE] Forward Unicast Deauth ke BSSID (Stress Mode)**:
+  - Mode *stress* sebelumnya hanya menembakkan deauth *broadcast*. Beberapa AP mengabaikan deauth broadcast tapi memproses deauth *unicast*. Kini ditambahkan tembakan deauth langsung ke BSSID target per putaran.
+- **[UPGRADE] Rotasi Reason Code Deauth Reverse (Stress Mode)**:
+  - `deauth_rev` (Client→AP spoof) di stress mode sebelumnya menggunakan reason statis `6`. Kini menggunakan rotasi dari 8 reason code.
 ---
 
 ## [4.7.2] - 2026-08-13
