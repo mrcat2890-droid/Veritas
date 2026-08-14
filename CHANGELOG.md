@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Mode *stress* sebelumnya hanya menembakkan deauth *broadcast*. Beberapa AP mengabaikan deauth broadcast tapi memproses deauth *unicast*. Kini ditambahkan tembakan deauth langsung ke BSSID target per putaran.
 - **[UPGRADE] Rotasi Reason Code Deauth Reverse (Stress Mode)**:
   - `deauth_rev` (Client→AP spoof) di stress mode sebelumnya menggunakan reason statis `6`. Kini menggunakan rotasi dari 8 reason code.
+- **[UPGRADE] WPA3 SAE Hunting & Puzzling (Vector #16)**:
+  - Mode Target (*Factory*): Diperbaiki *bug* statis di mana vektor ini hanya menghasilkan satu paket `sae_commit` dari *MAC client target* (bahkan *broadcast MAC* `FF:FF:FF:FF:FF:FF` jika tidak diset, yang langsung didrop). Kini menggunakan metode *pooling* seperti Auth DoS, menyemburkan paket *Commit* dari puluhan MAC acak (`sae_pool[MAX_AUTH_POOL]`).
+  - Rotasi Grup Kriptografi: `Finite Cyclic Group` (Group ID) di dalam *body SAE Commit* sebelumnya terkunci statis di Grup `19` (NIST P-256). Keduanya di mode Target maupun *Stress* kini secara rotasi menggunakan **Grup 19**, **Grup 20** (P-384), dan **Grup 21** (P-521). Ini mem-bypass filter pembatas anti-clogging AP yang hanya melindungi satu grup, memaksa *AP CPU exhaustation* (ECDH) lebih parah.
 ---
 
 ## [4.7.2] - 2026-08-13

