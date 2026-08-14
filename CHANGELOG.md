@@ -11,10 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgraded — Tactical Vector Enhancement
 
-- **[UPGRADE] ECSA & Quiet Element Stacking (Vector #1: CSA)**: 
-  - Vektor *Channel Switch Announcement* (CSA) telah ditingkatkan dari CSA standar (IE 37) menjadi serangan bertumpuk yang menyertakan **Extended CSA (IE 60)**.
+- **[UPGRADE] ECSA & Quiet Element Stacking (Vector #1, #8, #10: CSA)**: 
+  - Ketiga vektor CSA utama (`CSA Beacon`, `CSA Action Frame`, `Probe Response CSA`) telah ditingkatkan dari CSA standar (IE 37) menjadi serangan bertumpuk yang menyertakan **Extended CSA (IE 60)**.
   - Ini mengeksploitasi klien modern 5GHz/WiFi-6 (Android/iOS terbaru) yang mem-filter CSA lama jika tidak ada *Operating Class*.
-  - Khusus untuk `CSA Action Frame`, *Quiet Element* (IE 40) sekarang disusupkan (*piggybacked*) langsung di dalam tubuh ECSA. Ini memaksa radio klien melakukan *TX Pause* / *Radio Silence* bersamaan dengan perintah pindah kanal, menciptakan benturan ganda di level *driver* klien.
+  - **Quiet Element (IE 40)** kini disusupkan di **ketiga** vektor CSA (bukan hanya Action Frame), memaksa radio klien melakukan *TX Pause* / *Radio Silence* bersamaan dengan perintah pindah kanal.
+- **[FIX] DS Parameter Set (Vector #1 & #10)**:
+  - DS Parameter Set IE (ID=3) pada `CSA Beacon` dan `Probe Response CSA` sebelumnya salah menunjuk ke `new_ch` (kanal tujuan). Menurut standar IEEE 802.11, DS Parameter harus menunjukkan **kanal operasi saat ini** (`cur_ch`). Klien cerdas bisa membuang beacon yang tidak konsisten. Diperbaiki agar sesuai standar.
 - **[UPGRADE] Firmware Watchdog Evasion (Intel 8265/9260 dkk)**:
   - Chipset Wi-Fi sensitif seperti Intel Corporation Wireless 8265 / 8275 (rev 78) sering terlempar dari *monitor mode* jika dipaksa menembak dengan intensitas *Insane* (buffer *DMA* penuh → *firmware panic reset*).
   - *PID Auto-Tuner* sekarang dilengkapi mekanisme pengereman darurat (*Hard Braking*). Jika *fail rate* mendadak melonjak melampaui 30%, injektor akan melakukan *Hardware Cooldown* instan (jeda mutlak 100 milidetik) dan memperlambat *base sleep* secara agresif. Ini mencegah cip Intel mengalami *overload* tanpa mengorbankan rata-rata tembakan PPS secara keseluruhan.
