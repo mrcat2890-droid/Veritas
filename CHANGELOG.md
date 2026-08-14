@@ -40,7 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Mode Target (*Factory*): Diperbaiki *bug* statis di mana vektor ini hanya menghasilkan satu paket `sae_commit` dari *MAC client target* (bahkan *broadcast MAC* `FF:FF:FF:FF:FF:FF` jika tidak diset, yang langsung didrop). Kini menggunakan metode *pooling* seperti Auth DoS, menyemburkan paket *Commit* dari puluhan MAC acak (`sae_pool[MAX_AUTH_POOL]`).
   - Rotasi Grup Kriptografi: `Finite Cyclic Group` (Group ID) di dalam *body SAE Commit* sebelumnya terkunci statis di Grup `19` (NIST P-256). Keduanya di mode Target maupun *Stress* kini secara rotasi menggunakan **Grup 19**, **Grup 20** (P-384), dan **Grup 21** (P-521). Ini mem-bypass filter pembatas anti-clogging AP yang hanya melindungi satu grup.
   - **[MAXIMUM LEVEL] Point-on-Curve Validation Bypass**: Sebelumnya bagian *Element* (x,y coordinate) pada *SAE Commit* hanya diisi dengan *byte random*. Pustaka ECC modern (seperti Hostapd) akan **langsung menolak** koordinat yang tidak berada di dalam kurva tanpa melakukan kalkulasi *scalar multiplication* (kalkulasi terberat). Kini, kita menggunakan **Titik Generator (G)** murni yang valid untuk masing-masing kurva (P-256, P-384, P-521) beserta panjang *scalar* dan *element* yang dinamis mengikuti panjang *Group ID*. AP tidak peduli ini adalah titik generator, ia melihat koordinat valid, dan dipaksa menyelesaikan kalkulasi ECDH yang ekstrem! Memaksa *CPU exhaustion* 100% pada AP.
----
+- **[UPGRADE] Operating Channel Aggression / DFS Fake Radar (Vector #15)**:
+  - *Dynamic Dialog Token*: `Measurement Report` IE kini merotasi *Dialog Token* per paket, bukan statis 1. Di mode Stress, paket ini ditembakkan secara *burst* (3 paket beruntun dengan 3 MAC Address *spoofed* berbeda) untuk membuat sistem AP lebih cepat terpicu bahwa ancaman radar DFS itu masif.
+  - *Vacate CSA Enhancement*: Sama seperti Vektor CSA utama, pemberitahuan pengosongan kanal (*vacate*) palsu sekarang dilengkapi dengan **Extended CSA (IE 60)** dan **Quiet Element (IE 40)**. Klien 5GHz modern yang keras kepala tidak punya pilihan selain merespons langsung.
 
 ## [4.7.2] - 2026-08-13
 
