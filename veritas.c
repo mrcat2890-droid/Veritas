@@ -4074,11 +4074,13 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_CSA_BEACON]) {
-        /* CSA beacon: redirect to a random adjacent channel */
-        int redir =
-            snap[i].channel < 10 ? snap[i].channel + 3 : snap[i].channel - 3;
-        if (redir < 1)
-          redir = 11;
+        /* [UPGRADE] Aggressive 2.4GHz Dead-End Routing */
+        int redir;
+        if (snap[i].channel <= 14) {
+            redir = (snap[i].channel <= 6) ? 14 : 1;
+        } else {
+            redir = (snap[i].channel < 100) ? 165 : 36;
+        }
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
         /* [UPGRADE] Realistic Countdown Burst to evade WIPS, ending in 0 (immediate) */
@@ -4109,10 +4111,13 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_PROBE_RESPONSE_CSA]) {
-        int redir =
-            snap[i].channel < 10 ? snap[i].channel + 3 : snap[i].channel - 3;
-        if (redir < 1)
-          redir = 11;
+        /* [UPGRADE] Aggressive 2.4GHz Dead-End Routing */
+        int redir;
+        if (snap[i].channel <= 14) {
+            redir = (snap[i].channel <= 6) ? 14 : 1;
+        } else {
+            redir = (snap[i].channel < 100) ? 165 : 36;
+        }
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
         /* [UPGRADE] Realistic Countdown Burst ending in 0 */
@@ -4157,10 +4162,13 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_CSA_ACTION]) {
-        int redir =
-            snap[i].channel < 10 ? snap[i].channel + 3 : snap[i].channel - 3;
-        if (redir < 1)
-          redir = 11;
+        /* [UPGRADE] Aggressive 2.4GHz Dead-End Routing */
+        int redir;
+        if (snap[i].channel <= 14) {
+            redir = (snap[i].channel <= 6) ? 14 : 1;
+        } else {
+            redir = (snap[i].channel < 100) ? 165 : 36;
+        }
 
         /* [UPGRADE] Realistic Countdown Burst ending in 0 */
         for (int c = 3; c >= 0; c--) {

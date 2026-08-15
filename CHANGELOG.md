@@ -22,7 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[UPGRADE] Advanced WIPS Evasion (CSA Realistic Countdown)**:
   - Vector #1 (Channel Switch Announcement) telah ditingkatkan untuk mengelabui deteksi tingkat lanjut dari *Wireless Intrusion Prevention Systems* (WIPS).
   - Sebelumnya Veritas menembakkan instruksi perpindahan kanal secara instan (`count = 1`), yang sering dicurigai sebagai anomali oleh WIPS.
-  - Sekarang Veritas menembakkan serangan berupa **rentetan/burst hitung mundur** (`count = 3`, `count = 2`, `count = 1`). Ini mensimulasikan persis bagaimana *Access Point* yang sah memberikan peringatan sebelum berpindah kanal, sehingga serangan terlihat sangat alami dan tidak terdeteksi oleh sistem heuristik WIPS.
+  - Sekarang Veritas menembakkan serangan berupa **rentetan/burst hitung mundur** (`count = 3`, `count = 2`, `count = 1`, `count = 0`). Ini mensimulasikan persis bagaimana *Access Point* yang sah memberikan peringatan sebelum berpindah kanal, sehingga serangan terlihat sangat alami dan tidak terdeteksi oleh sistem heuristik WIPS.
+- **[UPGRADE] Aggressive 2.4GHz Dead-End Routing (Vector #1)**:
+  - Mengubah kalkulasi algoritma kanal tujuan (`redir`) untuk serangan CSA di spektrum frekuensi 2.4GHz.
+  - Alih-alih melempar klien ke kanal yang berdekatan (di mana mereka bisa dengan cepat pulih), Veritas kini melempar klien secara paksa ke ujung ekstrim spektrum.
+  - Jika AP target berada di Kanal 1-6: Klien dibanting ke **Kanal 14** (Kanal ilegal/terlarang di mayoritas region, menyebabkan *driver error* atau *timeout* fatal).
+  - Jika AP target berada di Kanal 7-14: Klien dibanting ke **Kanal 1** (ujung spektrum terjauh, memaksa radio klien melakukan kalibrasi ulang dari awal).
 
 ## [4.7.3] - 2026-08-13
 
