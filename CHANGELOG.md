@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Merombak total kalkulasi dan *payload* untuk target yang beroperasi di pita 5GHz.
   - **DFS Blackhole**: Alih-alih melempar klien secara acak, kini semua klien 5GHz secara paksa dibanting ke **Kanal 128 (Terminal Doppler Weather Radar)**. Aturan perangkat keras (*hardware regulations*) memaksa modul klien untuk melakukan *Channel Availability Check* (CAC) secara ketat selama **10 menit** saat memasuki kanal radar ini. Ini menciptakan efek *Denial of Service* secara instan di mana radio klien dibungkam total selama 10 menit tanpa ampun.
   - **IE 192 (VHT Operation) Malformation**: Veritas kini menyuntikkan *Information Element* 192 beracun ke dalam paket CSA 5GHz. IE ini memaksa *chip* Wi-Fi klien beralih ke *bandwidth* raksasa **160 MHz**, tetapi dengan koordinat frekuensi pusat (Center Frequency) yang mustahil secara logika (255). Saat *driver* klien (seperti Realtek atau Mediatek) mencoba memproses parameter cacat ini untuk mengalokasikan memori radio, hal ini memicu **Kernel Panic** seketika—membuat OS klien *hang*, *restart*, atau melumpuhkan *subsystem* Wi-Fi hingga dilakukan *hard reset*.
+- **[UPGRADE] Cascading DFS Lockout & IE 192 Piggybacking (Vector #16: DFS Fake Radar)**:
+  - Vector #16 telah ditingkatkan menjadi serangan **Multi-Channel Spectrum Bombardment**.
+  - Alih-alih hanya mengklaim deteksi radar di satu kanal, Veritas kini membangun satu paket *Measurement Report* raksasa yang mengklaim adanya radar militer di semua pita utama DFS (Kanal 52, 100, 132) secara bersamaan. Ini memaksa logika mitigasi radar AP untuk mengunci/mem-Banned **seluruh** spektrum DFS 5GHz dan memaksanya bermigrasi ke kanal biasa yang padat, menghancurkan *throughput*-nya secara permanen.
+  - Paket *Vacate CSA* (peringatan palsu agar klien menjauhi radar) yang ditembakkan dalam serangan ini kini juga disuntik dengan *payload* beracun **IE 192 Kernel Panic**, menjamin bahwa setiap klien yang mematuhinya akan langsung *crash*!
+- **[UPGRADE] PMF State-Machine Baiting & Micro-Burst (Vector #2 & #3: Deauth/Disassoc)**:
+  - Untuk menembus perlindungan WPA3 PMF (Protected Management Frames), serangan *Deauth/Disassoc* kini ditembakkan dalam bentuk **Micro-Burst** super cepat.
+  - Veritas secara khusus menyuntikkan rentetan 3 paket berturut-turut menggunakan **Reason Code 6** (*Class 2 frame received*) dan **Reason Code 7** (*Class 3 frame received*). Kombinasi *Micro-Burst* dan kode alasan spesifik ini dirancang untuk membuat *discard queue* PMF pada *router* (khususnya Broadcom dan Mediatek) meluap, memicu *CPU Spike* dan seringkali berhasil menipu *router* agar secara prematur menghapus status koneksi klien (mem-Bypass PMF).
+- **[UPGRADE] Variable-Length WIPS Padding (Vector #2 & #3: Deauth/Disassoc)**:
+  - Meningkatkan teknik *WIPS Evasion* (penghindaran deteksi) pada paket *Deauth/Disassoc*.
+  - Sebelumnya, *padding* pengelabuan (*Vendor Specific IE 221*) memiliki ukuran statis 7 byte, yang rentan dideteksi oleh WIPS tingkat lanjut (Cisco/Meraki) berbasis pola ukuran (Signature).
+  - Sekarang, Veritas mengkalkulasi **Variable-Length Padding** yang panjangnya berubah-ubah secara dinamis antara 7 hingga 22 byte setiap milidetiknya berdasarkan nomor *Sequence*. Ini memastikan tidak ada dua paket serangan yang memiliki ukuran atau muatan yang identik, menjadikannya seolah-olah "suara bising radio" (RF Noise) acak yang sama sekali tidak terlihat oleh aturan *Firewall* Wi-Fi statis.
 
 ## [4.7.3] - 2026-08-13
 
