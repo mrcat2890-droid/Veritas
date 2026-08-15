@@ -43,10 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[UPGRADE] Operating Channel Aggression / DFS Fake Radar (Vector #15)**:
   - *Dynamic Dialog Token*: `Measurement Report` IE kini merotasi *Dialog Token* per paket, bukan statis 1. Di mode Stress, paket ini ditembakkan secara *burst* (3 paket beruntun dengan 3 MAC Address *spoofed* berbeda) untuk membuat sistem AP lebih cepat terpicu bahwa ancaman radar DFS itu masif.
   - *Vacate CSA Enhancement*: Sama seperti Vektor CSA utama, pemberitahuan pengosongan kanal (*vacate*) palsu sekarang dilengkapi dengan **Extended CSA (IE 60)** dan **Quiet Element (IE 40)**. Klien 5GHz modern yang keras kepala tidak punya pilihan selain merespons langsung.
-- **[MAXIMUM LEVEL] CSA Vectors (Vektor #1, #8, #10)**:
-  - *Instant Hard-Switch*: Parameter `Switch Count` pada CSA dan Extended CSA kini diset ke `0` (sebelumnya `1`). Ini memaksa modul radio klien untuk melakukan perpindahan instan dan langsung membuang (drop) seluruh isi *buffer* TX mereka saat itu juga, menghasilkan pemutusan koneksi yang jauh lebih agresif dibanding perpindahan *graceful*.
-  - *Wide Bandwidth Downgrade (IE 104)*: Menambahkan elemen *Wide Bandwidth Channel Switch* yang memaksa klien 802.11ac/ax (WiFi-5/WiFi-6) untuk turun mode dari lebar pita tinggi (80/160MHz) menjadi 20MHz murni. Ini secara instan menghancurkan sesi *Frame Aggregation* klien.
-  - *MAC Randomization Bypass (Vektor #8)*: Menjawab kelemahan target spesifik AP (seperti fitur *Mobile Hotspot* dengan MAC Address acak), Vektor #8 (CSA Action Frame) kini juga menembakkan frame paralel menggunakan `Wildcard BSSID` (`FF:FF:FF:FF:FF:FF` sebagai Address 1 dan Address 2). Hal ini memastikan AP dan klien yang menyembunyikan/mengacak BSSID tetap akan menerima dan memproses injeksi CSA.
+- **[FEATURE] Anti-MAC Randomization (Dynamic SSID Tracking)**:
+  - Ditambahkan argumen CLI baru `--target-ssid "Nama WiFi"` (atau `--ssid`).
+  - Fitur ini melawan *router* modern atau *mobile hotspot* korporat yang terus-menerus merotasi BSSID (MAC Address) mereka untuk menghindari *Deauthentication* yang terkunci pada satu MAC target.
+  - Pada *Stress Mode*, filter penembakan tidak lagi dilakukan secara membabi-buta, melainkan difokuskan **hanya** pada target *Access Point* yang memancarkan SSID yang cocok (*string matching*). Secepat apapun *router* target merubah MAC Address-nya, selama nama SSID-nya tetap, Veritas akan selalu memburu dan melibas target BSSID yang baru tersebut *on-the-fly*.
 
 ## [4.7.2] - 2026-08-13
 
