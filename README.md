@@ -129,6 +129,11 @@ sudo ./veritas --stress --5ghz
 # Uji stress pada spektrum Dual-Band secara paralel (Multi-Radio Load Balancing)
 # wlan0 akan dikhususkan untuk 2.4GHz, wlan1 untuk 5GHz
 sudo ./veritas --stress --5ghz --dual wlan1
+
+# [FITUR ANTI-MAC RANDOMIZATION] Dynamic SSID Tracking
+# Fokus menembakkan vektor stress hanya ke jaringan bernama "Target WiFi",
+# meskipun router target tersebut terus merubah MAC Address-nya.
+sudo ./veritas --stress --ssid "Target WiFi"
 ```
 
 ---
