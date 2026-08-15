@@ -587,14 +587,26 @@ static int mk_dot11(uint8_t *b, uint16_t fc, const uint8_t d[6],
   return sizeof(dot11_t);
 }
 
-static int mk_probe_req(uint8_t *b, const uint8_t bss[6]) {
+static int mk_probe_req(uint8_t *b, const uint8_t bss[6], const char *target_ssid) {
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_PROBEREQ, bss ? bss : BCAST, BCAST, bss ? bss : BCAST,
                 0);
-  /* Wildcard SSID IE (ID=0, len=0) */
-  b[o++] = 0;
-  b[o++] = 0;
+  
+  if (target_ssid && target_ssid[0]) {
+    /* Targeted SSID IE */
+    int sl = (int)strlen(target_ssid);
+    if (sl > MAX_SSID_LEN) sl = MAX_SSID_LEN;
+    b[o++] = 0;
+    b[o++] = (uint8_t)sl;
+    memcpy(b + o, target_ssid, sl);
+    o += sl;
+  } else {
+    /* Wildcard SSID IE (ID=0, len=0) */
+    b[o++] = 0;
+    b[o++] = 0;
+  }
+  
   /* Supported rates IE (ID=1, len=8) */
   b[o++] = 1;
   b[o++] = 8;
@@ -3635,19 +3647,38 @@ static void *stress_scanner_thread(void *arg) {
   }
 
   uint8_t buf[4096];
+  
+  #define MAX_HARVEST 32
+  char harvest_pool[MAX_HARVEST][MAX_SSID_LEN + 1] = {0};
+  int harvest_cnt = 0;
+  double last_probe_time = mono_time();
+
   while (!g_stop) {
     /* Active Probe Request sweep when unmask_hidden is enabled */
-    static int probe_cnt = 0;
-    if (a->unmask_hidden && ++probe_cnt >= 50) {
-      probe_cnt = 0;
-      uint8_t pb[256];
-      int plen = mk_probe_req(pb, BCAST);
-      inject_one(sock, pb, plen);
+    if (a->unmask_hidden) {
+      double now = mono_time();
+      if (now - last_probe_time >= 1.0) {
+        last_probe_time = now;
+        uint8_t pb[256];
+        
+        /* 1. Send Wildcard Probe Request */
+        int plen = mk_probe_req(pb, BCAST, NULL);
+        inject_one(sock, pb, plen);
+        
+        /* 2. Send Targeted Probe Requests based on harvested SSIDs */
+        for (int i = 0; i < harvest_cnt; i++) {
+          if (harvest_pool[i][0]) {
+            plen = mk_probe_req(pb, BCAST, harvest_pool[i]);
+            inject_one(sock, pb, plen);
+          }
+        }
+      }
     }
 
     ssize_t n = recv(sock, buf, sizeof(buf), 0);
     if (n <= 36)
       continue;
+
 
     /* Parse radiotap length */
     uint16_t rt_len = 0;
@@ -3784,9 +3815,27 @@ static void *stress_scanner_thread(void *arg) {
         ie_off += 2 + ie_len;
       }
 
-      if (ssid[0] && !(d->a3[0] & 0x01)) {
-        int8_t rssi = parse_radiotap_rssi(buf, rt_len);
-        stress_pool_add(a->pool, d->a3, ssid, 0, rssi, "");
+      if (ssid[0]) {
+        /* Add to stress pool if directed probe */
+        if (!(d->a3[0] & 0x01)) {
+          int8_t rssi = parse_radiotap_rssi(buf, rt_len);
+          stress_pool_add(a->pool, d->a3, ssid, 0, rssi, "");
+        }
+        
+        /* SSID Harvesting logic: store ambient SSID for unmasking */
+        if (a->unmask_hidden) {
+          bool found = false;
+          for (int i = 0; i < harvest_cnt; i++) {
+            if (strncmp(harvest_pool[i], ssid, MAX_SSID_LEN) == 0) {
+              found = true;
+              break;
+            }
+          }
+          if (!found && harvest_cnt < MAX_HARVEST) {
+            snprintf(harvest_pool[harvest_cnt], MAX_SSID_LEN + 1, "%.32s", ssid);
+            harvest_cnt++;
+          }
+        }
       }
     }
 
