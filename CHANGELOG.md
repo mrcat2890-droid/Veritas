@@ -45,7 +45,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Meningkatkan teknik *WIPS Evasion* (penghindaran deteksi) pada paket *Deauth/Disassoc*.
   - Sebelumnya, *padding* pengelabuan (*Vendor Specific IE 221*) memiliki ukuran statis 7 byte, yang rentan dideteksi oleh WIPS tingkat lanjut (Cisco/Meraki) berbasis pola ukuran (Signature).
   - Sekarang, Veritas mengkalkulasi **Variable-Length Padding** yang panjangnya berubah-ubah secara dinamis antara 7 hingga 22 byte setiap milidetiknya berdasarkan nomor *Sequence*. Ini memastikan tidak ada dua paket serangan yang memiliki ukuran atau muatan yang identik, menjadikannya seolah-olah "suara bising radio" (RF Noise) acak yang sama sekali tidak terlihat oleh aturan *Firewall* Wi-Fi statis.
-
+- **[UPGRADE] Omni-Panic Protocol Malformation & IE Stacking (Vector #1, #8, #10: CSA)**:
+  - Seluruh paket CSA kini disulap menjadi bom logika mematikan yang menargetkan *driver parsing logic* dari semua generasi Wi-Fi secara bersamaan (Wi-Fi 4, 5, dan 6).
+  - Setiap paket CSA menyuntikkan: **IE 61 (HT Operation)** dengan *Secondary Channel Offset* cacat untuk memicu *Integer Overflow*, **IE 192 (VHT Operation)** dengan koordinat frekuensi pusat 255 untuk memicu *Buffer Overflow* 160MHz, dan **IE 255 Ext 36 (HE Operation)** dengan *BSS Color* sampah untuk meng-*crash*-kan logika 802.11ax.
+  - Kombinasi racun (*Omni-Panic Stack*) ini kini ditembakkan di **setiap** perintah pindah kanal, baik di spektrum 2.4GHz maupun 5GHz, menjamin *Kernel Panic* massal pada perangkat klien (*smartphone/laptop*) yang mencoba memproses perintah tersebut.
+- **[UPGRADE] RSN Downgrade Poisoning / WPA3 Self-Banishment (Vector #1 & #10: CSA)**:
+  - Mengelabui mekanisme perlindungan *Anti-Downgrade* (KRACK Protection) pada iOS dan Android modern.
+  - Veritas kini menyuntikkan *Information Element* 48 (RSN) palsu ke dalam paket *CSA Beacon* dan *Probe Response*. RSN palsu ini mengiklankan bahwa AP target diam-diam telah menurunkan tingkat keamanannya menjadi enkripsi WPA-TKIP yang sudah sangat usang dan dilarang.
+  - Ketika ponsel korban memproses paket ini, *Security Daemon* OS akan berasumsi jaringan sedang diserang oleh *Hacker* (Downgrade Attack) dan akan secara permanen mem-**Blacklist** *MAC Address* AP aslinya. Pengguna tidak akan bisa terhubung kembali ke Wi-Fi rumah/kantornya sendiri sampai mereka menekan tombol "Lupakan Jaringan" (*Forget Network*) secara manual.
+- **[UPGRADE] Phantom Roaming Trap (Vector #10: Probe Response CSA)**:
+  - Vektor *Probe Response CSA* kini tidak hanya mengandalkan *spoofing* BSSID AP asli.
+  - Veritas akan memancarkan "AP Hantu" (*Phantom AP*)—membuat SSID virtual yang persis sama dengan SSID target, tetapi menggunakan MAC Address acak yang dibuat dinamis, seolah-olah ada sinyal *router* kedua yang jauh lebih kuat.
+  - Saat perangkat klien korban mencoba melakukan *Roaming* untuk berpindah ke AP Hantu ini, sang AP Hantu akan segera "menyambutnya" dengan menembakkan paket *Probe Response CSA* jebakan yang memaksa klien masuk ke saluran mematikan (*DFS Blackhole* atau Kanal 14).
 ## [4.7.3] - 2026-08-13
 
 ### Upgraded — Tactical Vector Enhancement
