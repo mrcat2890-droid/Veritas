@@ -4843,7 +4843,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--export") == 0 && i + 1 < argc)
       snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
     if ((strcmp(argv[i], "--target-ssid") == 0 || strcmp(argv[i], "--ssid") == 0) && i + 1 < argc)
-      snprintf(global_target_ssid, MAX_SSID_LEN, "%s", argv[++i]);
+      snprintf(global_target_ssid, sizeof(global_target_ssid), "%s", argv[++i]);
   }
 
   if (stress_mode) {
@@ -4854,9 +4854,9 @@ int main(int argc, char **argv) {
     scfg.unmask_hidden = unmask_hidden;
     scfg.dual_radio = global_dual_radio;
     if (global_target_ssid[0])
-      snprintf(scfg.target_ssid_track, MAX_SSID_LEN, "%s", global_target_ssid);
+      snprintf(scfg.target_ssid_track, sizeof(scfg.target_ssid_track), "%s", global_target_ssid);
     if (global_dual_radio) {
-      snprintf(scfg.iface2, MAX_IFACE, "%s", global_iface2);
+      snprintf(scfg.iface2, sizeof(scfg.iface2), "%s", global_iface2);
     }
 
     /* Interface selection */
