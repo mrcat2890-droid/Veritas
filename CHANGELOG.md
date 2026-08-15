@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.7.4] - 2026-08-15
+
+### Upgraded — Tactical Vector Enhancement
+
+- **[FEATURE] Anti-MAC Randomization (Dynamic SSID Tracking)**:
+  - Ditambahkan argumen CLI baru `--target-ssid "Nama WiFi"` (atau `--ssid`).
+  - Fitur ini melawan *router* modern atau *mobile hotspot* korporat yang terus-menerus merotasi BSSID (MAC Address) mereka untuk menghindari *Deauthentication* yang terkunci pada satu MAC target.
+  - Pada *Stress Mode*, filter penembakan tidak lagi dilakukan secara membabi-buta, melainkan difokuskan **hanya** pada target *Access Point* yang memancarkan SSID yang cocok (*string matching*). Secepat apapun *router* target merubah MAC Address-nya, selama nama SSID-nya tetap, Veritas akan selalu memburu dan melibas target BSSID yang baru tersebut *on-the-fly*.
+- **[UPGRADE] Unmask Hidden SSID (Ambient Harvesting & Targeted Replay)**:
+  - Fitur pasif `--unmask-hidden` dirombak total. Sebelumnya hanya menembakkan *Wildcard Probe Request* kosong secara membabi-buta, yang mana sering diabaikan oleh AP Hidden modern berstandar WPA3.
+  - **SSID Harvesting**: *Scanner thread* sekarang secara pasif memanen/menyadap *Probe Request* dari klien-klien di sekitarnya (bahkan *broadcast probe*) dan menyimpan SSID yang mereka cari ke dalam *ring buffer* (maksimal 32 SSID).
+  - **Targeted Probe Replay**: Setiap 1 detik, Veritas akan menembakkan rentetan *Targeted Probe Request* berdasarkan nama SSID yang telah dipanen tersebut. Ini bertindak seperti teknik *phishing* tingkat sinyal RF, memaksa AP Hidden yang keras kepala untuk merespons dan membocorkan BSSID serta Channel aslinya.
+
 ## [4.7.3] - 2026-08-13
 
 ### Upgraded — Tactical Vector Enhancement
@@ -43,10 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[UPGRADE] Operating Channel Aggression / DFS Fake Radar (Vector #15)**:
   - *Dynamic Dialog Token*: `Measurement Report` IE kini merotasi *Dialog Token* per paket, bukan statis 1. Di mode Stress, paket ini ditembakkan secara *burst* (3 paket beruntun dengan 3 MAC Address *spoofed* berbeda) untuk membuat sistem AP lebih cepat terpicu bahwa ancaman radar DFS itu masif.
   - *Vacate CSA Enhancement*: Sama seperti Vektor CSA utama, pemberitahuan pengosongan kanal (*vacate*) palsu sekarang dilengkapi dengan **Extended CSA (IE 60)** dan **Quiet Element (IE 40)**. Klien 5GHz modern yang keras kepala tidak punya pilihan selain merespons langsung.
-- **[FEATURE] Anti-MAC Randomization (Dynamic SSID Tracking)**:
-  - Ditambahkan argumen CLI baru `--target-ssid "Nama WiFi"` (atau `--ssid`).
-  - Fitur ini melawan *router* modern atau *mobile hotspot* korporat yang terus-menerus merotasi BSSID (MAC Address) mereka untuk menghindari *Deauthentication* yang terkunci pada satu MAC target.
-  - Pada *Stress Mode*, filter penembakan tidak lagi dilakukan secara membabi-buta, melainkan difokuskan **hanya** pada target *Access Point* yang memancarkan SSID yang cocok (*string matching*). Secepat apapun *router* target merubah MAC Address-nya, selama nama SSID-nya tetap, Veritas akan selalu memburu dan melibas target BSSID yang baru tersebut *on-the-fly*.
 
 ## [4.7.2] - 2026-08-13
 
