@@ -23,11 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Vector #1 (Channel Switch Announcement) telah ditingkatkan untuk mengelabui deteksi tingkat lanjut dari *Wireless Intrusion Prevention Systems* (WIPS).
   - Sebelumnya Veritas menembakkan instruksi perpindahan kanal secara instan (`count = 1`), yang sering dicurigai sebagai anomali oleh WIPS.
   - Sekarang Veritas menembakkan serangan berupa **rentetan/burst hitung mundur** (`count = 3`, `count = 2`, `count = 1`, `count = 0`). Ini mensimulasikan persis bagaimana *Access Point* yang sah memberikan peringatan sebelum berpindah kanal, sehingga serangan terlihat sangat alami dan tidak terdeteksi oleh sistem heuristik WIPS.
+  - Peningkatan ini sekarang **aktif di semua mode operasi** (termasuk mode serang konvensional / Factory Mode, tidak hanya pada Stress Mode).
 - **[UPGRADE] Aggressive 2.4GHz Dead-End Routing (Vector #1)**:
   - Mengubah kalkulasi algoritma kanal tujuan (`redir`) untuk serangan CSA di spektrum frekuensi 2.4GHz.
   - Alih-alih melempar klien ke kanal yang berdekatan (di mana mereka bisa dengan cepat pulih), Veritas kini melempar klien secara paksa ke ujung ekstrim spektrum.
   - Jika AP target berada di Kanal 1-6: Klien dibanting ke **Kanal 14** (Kanal ilegal/terlarang di mayoritas region, menyebabkan *driver error* atau *timeout* fatal).
   - Jika AP target berada di Kanal 7-14: Klien dibanting ke **Kanal 1** (ujung spektrum terjauh, memaksa radio klien melakukan kalibrasi ulang dari awal).
+  - Peningkatan ini juga telah diterapkan secara menyeluruh ke **Factory Mode**, memastikan konsistensi kekuatan destruktif di semua jenis operasi Veritas.
+- **[UPGRADE] 5GHz DFS Blackhole & IE 192 Kernel Panic (Vector #1)**:
+  - Merombak total kalkulasi dan *payload* untuk target yang beroperasi di pita 5GHz.
+  - **DFS Blackhole**: Alih-alih melempar klien secara acak, kini semua klien 5GHz secara paksa dibanting ke **Kanal 128 (Terminal Doppler Weather Radar)**. Aturan perangkat keras (*hardware regulations*) memaksa modul klien untuk melakukan *Channel Availability Check* (CAC) secara ketat selama **10 menit** saat memasuki kanal radar ini. Ini menciptakan efek *Denial of Service* secara instan di mana radio klien dibungkam total selama 10 menit tanpa ampun.
+  - **IE 192 (VHT Operation) Malformation**: Veritas kini menyuntikkan *Information Element* 192 beracun ke dalam paket CSA 5GHz. IE ini memaksa *chip* Wi-Fi klien beralih ke *bandwidth* raksasa **160 MHz**, tetapi dengan koordinat frekuensi pusat (Center Frequency) yang mustahil secara logika (255). Saat *driver* klien (seperti Realtek atau Mediatek) mencoba memproses parameter cacat ini untuk mengalokasikan memori radio, hal ini memicu **Kernel Panic** seketika—membuat OS klien *hang*, *restart*, atau melumpuhkan *subsystem* Wi-Fi hingga dilakukan *hard reset*.
 
 ## [4.7.3] - 2026-08-13
 

