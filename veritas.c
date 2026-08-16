@@ -1,57 +1,3 @@
-/*
- * Veritas v4.1 — CSA Attack Framework (Audit-Fixed Edition)
- *
- * All fixes from v4.0 audit applied:
- *   [FIX 2]  PMKID KDE offset+type check (read j+6 after 0x04)
- *   [FIX 3]  Dummy vectors return empty pkt_set (no injection)
- *   [FIX 4]  TX_FLAGS = 0x0018 (NOACK|NOSEQ)
- *   [FIX 5]  EAPOL Logoff ToDS bit + correct address order
- *   [FIX 6]  DS Parameter Set IE (ID=3) in beacons/probes
- *   [FIX 7]  Quiet IE cnt=1, period=1 for continuous quiet
- *   [FIX 8]  Probe Response unicast to client MAC
- *   [FIX 9]  DELBA valid initiator params + reason
- *   [FIX 10] parse_mac return checked everywhere
- *   [FIX 11] seq=0 at factory build (injector assigns)
- *   [FIX 12] Per-thread rate_ctrl_t (no shared mutable state)
- *   [FIX 13] pthread_create return checked
- *   [FIX 14] Per-thread xorshift64 PRNG (no glibc mutex)
- *   [FIX 15] Socket failure prints error with context
- *   [FIX 16] Guard pkts.n==0 in inject_thread
- *   [FIX 17] Batch sendmmsg works for single-pkt vectors
- *   [FIX 19] PPS target divided by thread count
- *   [FIX 20] Per-thread rolling-window PPS (1s window)
- *   [FIX 21] PACKET_IGNORE_OUTGOING on capture socket
- *   [FIX 22] PMKID filtered to target BSSID only
- *   [FIX 23] EAPOL M1 validation (Key Info ACK bit)
- *   [FIX 24] Unaligned radiotap read via memcpy
- *   [FIX 25] PMKID output in hashcat 22000 format
- *   [FIX 26] PMKID/IDS/dual/rogue enabled in both modes
- *   [FIX 27] Interface switched to AP mode for rogue
- *   [FIX 28] hw_mode=a + VHT for 5GHz rogue AP
- *   [FIX 29] Blocking waitpid for rogue cleanup
- *   [FIX 30] start_rogue called in script mode
- *   [FIX 31] Script mode input validation
- *   [FIX 32] jbool() JSON boolean parser
- *   [FIX 33] set_ch via fork/execlp (no system())
- *   [FIX 34] DFS channel warnings
- *   [FIX 35] ESSID fallback uses fld[13] only when nf>=14
- *   [FIX 36] CLI flags --pmkid --ids-bypass --dual --rogue --help
- *   [FIX 37] Stats file throttled to 1Hz
- *   [FIX 38] "Hit Rate" renamed to "TX OK"
- *   [FIX 39] Both interfaces restored on exit
- *   [FIX 40] --help handler
- *   [FIX 41] htole16/le16toh for portability
- *   [FIX 42] Scanner --band option (abg)
- *   [FIX 43] Channel width in set_ch
- *   [FIX 44] hostapd VHT config for 5GHz
- *   [FIX 45] Regulatory domain warning for high 5GHz
- *   [FIX 46] DFS redirect strategy info message
- *
- * Compile: gcc -Wall -Wextra -O2 -pthread -o veritas veritas.c -lm
- * Usage:   sudo ./veritas [--help]
- *          sudo ./veritas [--pmkid] [--ids-bypass] [--dual <if2>] [--rogue]
- *          sudo ./veritas --script config.json
- */
 
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -118,7 +64,7 @@ static const char *BANNER =
     "\n" C_DEEP_B BLD
     "   ╠══════════════════════════════════════════════════════════════╣" RST
     "\n" C_ICE BLD
-    "   ║      V E R I T A S   v 4 . 4  —  Audit-Fixed Edition       ║" RST
+    "   ║      V E R I T A S   v 4 . 7       —      Author mrc4t       ║" RST
     "\n" C_DEEP_B BLD
     "   ╚══════════════════════════════════════════════════════════════╝" RST
     "\n";
