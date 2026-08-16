@@ -3742,12 +3742,23 @@ static void stress_pool_age(stress_pool_t *p) {
   pthread_mutex_unlock(&p->lock);
 }
 
-/* Snapshot: copy current pool under lock */
+/* Snapshot: copy current pool under lock and sort by RSSI (closest first) */
 static int stress_pool_snapshot(stress_pool_t *p, stress_ap_t *out, int max) {
   pthread_mutex_lock(&p->lock);
   int n = p->count < max ? p->count : max;
   memcpy(out, p->aps, (size_t)n * sizeof(stress_ap_t));
   pthread_mutex_unlock(&p->lock);
+
+  /* [UPGRADE] Sort by RSSI descending so we always attack closest targets first */
+  for (int i = 0; i < n - 1; i++) {
+    for (int j = 0; j < n - i - 1; j++) {
+      if (out[j].rssi < out[j + 1].rssi) {
+        stress_ap_t tmp = out[j];
+        out[j] = out[j + 1];
+        out[j + 1] = tmp;
+      }
+    }
+  }
   return n;
 }
 
@@ -4108,6 +4119,22 @@ static void *stress_hopper_thread(void *arg) {
   return NULL;
 }
 
+/* [UPGRADE] Simple wildcard matching supporting '*' */
+static bool wildcard_match(const char *pattern, const char *str) {
+  if (*pattern == '\0') return *str == '\0';
+  if (*pattern == '*') {
+    if (*(pattern + 1) == '\0') return true;
+    while (*str != '\0') {
+      if (wildcard_match(pattern + 1, str)) return true;
+      str++;
+    }
+    return false;
+  }
+  if (*str == '\0') return false;
+  if (*pattern == *str) return wildcard_match(pattern + 1, str + 1);
+  return false;
+}
+
 /* ---- Multi-Target Injector Thread ---- */
 
 typedef struct {
@@ -4194,12 +4221,11 @@ static void *stress_injector_thread(void *arg) {
       if (snap[i].channel != cur_ch)
         continue;
 
-      /* [FEATURE] SSID Tracking Filter */
+      /* [UPGRADE] Dynamic Wildcard Matching */
       if (a->cfg->target_ssid_track_cnt > 0) {
         bool ssid_match = false;
         for (int j = 0; j < a->cfg->target_ssid_track_cnt; j++) {
-          int tlen = strlen(a->cfg->target_ssid_track[j]);
-          if (tlen > 0 && strncmp(snap[i].ssid, a->cfg->target_ssid_track[j], tlen) == 0) {
+          if (wildcard_match(a->cfg->target_ssid_track[j], snap[i].ssid)) {
             ssid_match = true;
             break;
           }

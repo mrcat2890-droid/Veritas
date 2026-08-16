@@ -57,6 +57,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Vektor *Probe Response CSA* kini tidak hanya mengandalkan *spoofing* BSSID AP asli.
   - Veritas akan memancarkan "AP Hantu" (*Phantom AP*)—membuat SSID virtual yang persis sama dengan SSID target, tetapi menggunakan MAC Address acak yang dibuat dinamis, seolah-olah ada sinyal *router* kedua yang jauh lebih kuat.
   - Saat perangkat klien korban mencoba melakukan *Roaming* untuk berpindah ke AP Hantu ini, sang AP Hantu akan segera "menyambutnya" dengan menembakkan paket *Probe Response CSA* jebakan yang memaksa klien masuk ke saluran mematikan (*DFS Blackhole* atau Kanal 14).
+## [4.7.4] - 2026-08-16
+
+### Upgraded — Precision Area Denial
+
+- **[UPGRADE] Dynamic Wildcard Matching (`--target-ssid`)**:
+  - Mesin pelacakan SSID kini tidak lagi dibatasi oleh pencocokan string eksak (*exact string matching*). Veritas sekarang mendukung penggunaan karakter *Wildcard* (`*`) di dalam flag target.
+  - Contoh: `--target-ssid "*Guest*"` akan secara otonom melacak, mengelompokkan, dan menyerang jaringan Wi-Fi mana pun di sekitar yang namanya mengandung kata "Guest". Ini memungkinkan seorang operator untuk melumpuhkan satu area kampus raksasa atau blok perkantoran hanya dengan satu sintaks perintah.
+- **[UPGRADE] Aggressive RSSI Prioritization (Distance-Based Striking)**:
+  - Pada mode `--stress` dengan target ganda (misal 50 *router* dengan SSID yang sama seperti di hotel/bandara), Veritas tidak lagi melakukan iterasi tembakan secara acak.
+  - *Target Pool* di dalam inti injektor kini diurutkan (*Sorting*) secara ketat dan *real-time* berdasarkan kekuatan sinyal (*RSSI - Received Signal Strength Indicator*). Veritas akan secara otomatis memfokuskan seluruh daya ledak RF-nya hanya kepada *Access Point* yang secara fisik berada paling dekat dengan operator, menjamin penetrasi serangan terdalam dan tingkat keberhasilan 100% pada target di ring-1.
+
 ## [4.7.3] - 2026-08-13
 
 ### Upgraded — Tactical Vector Enhancement
