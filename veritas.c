@@ -2936,6 +2936,7 @@ static bool vmc(const char *s) { return valid_mac(s); }
 static bool vch(const char *s) { return valid_ch(atoi(s)); }
 
 static void menu_iface(char *out, int sz) {
+  if (out && out[0] != '\0') return;
   printf("\n  " C_CYAN BLD "Interface Selection" RST "\n\n");
   char ifs[16][MAX_IFACE];
   int n = detect_mon_ifaces(ifs, 16);
@@ -3479,6 +3480,7 @@ static void print_help(void) {
   printf("Options (interactive mode):\n");
   printf("  --pmkid         Enable PMKID capture\n");
   printf("  --ids-bypass    Enable IDS evasion (jittered injection)\n");
+  printf("  -i, --iface <if> Primary monitor interface (Hunter)\n");
   printf("  --dual <iface>  Use dual radio (second monitor interface)\n");
   printf("  --rogue         Spawn rogue AP on redirect channel\n");
   printf("  --stats <file>  Write live stats JSON to file\n");
@@ -5093,6 +5095,7 @@ int main(int argc, char **argv) {
     return 1;
 
   
+  char global_iface[MAX_IFACE] = {0};
   bool stress_mode = false;
   bool stress_5ghz = false;
   bool unmask_hidden = false;
@@ -5102,6 +5105,8 @@ int main(int argc, char **argv) {
   char export_file[MAX_PATH_LEN] = "";
   char global_target_ssid_str[MAX_SSID_LEN * MAX_TRACK_SSIDS + 1] = {0};
   for (int i = 1; i < argc; i++) {
+    if ((strcmp(argv[i], "--iface") == 0 || strcmp(argv[i], "-i") == 0) && i + 1 < argc)
+      snprintf(global_iface, MAX_IFACE, "%s", argv[++i]);
     if (strcmp(argv[i], "--stress") == 0)
       stress_mode = true;
     if (strcmp(argv[i], "--5ghz") == 0)
@@ -5138,6 +5143,9 @@ int main(int argc, char **argv) {
     }
     if (global_dual_radio) {
       snprintf(scfg.iface2, sizeof(scfg.iface2), "%s", global_iface2);
+    }
+    if (global_iface[0]) {
+      snprintf(scfg.iface, sizeof(scfg.iface), "%s", global_iface);
     }
 
     
@@ -5201,6 +5209,8 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[i], "--dual") == 0 && i + 1 < argc) {
       
       i++;
+    } else if ((strcmp(argv[i], "--iface") == 0 || strcmp(argv[i], "-i") == 0) && i + 1 < argc) {
+      i++;
     } else if ((strcmp(argv[i], "--target-ssid") == 0 || strcmp(argv[i], "--ssid") == 0) && i + 1 < argc) {
       i++;
     } else if (strcmp(argv[i], "--stats") == 0 && i + 1 < argc) {
@@ -5217,7 +5227,10 @@ int main(int argc, char **argv) {
     cfg.dual_radio = true;
   }
 
-  char iface[MAX_IFACE];
+  char iface[MAX_IFACE] = {0};
+  if (global_iface[0]) {
+    snprintf(iface, MAX_IFACE, "%s", global_iface);
+  }
   menu_iface(iface, sizeof(iface));
 
   target_ap_t tgt = {0};

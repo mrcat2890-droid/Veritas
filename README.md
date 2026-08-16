@@ -105,9 +105,10 @@ sudo ./veritas
 sudo ./veritas [OPSI]
 
 Opsi Utama:
+  -i, --iface <if> Menetapkan monitor interface utama (Hunter) (mengabaikan menu interaktif)
   --pmkid         Mengaktifkan penangkapan handshake PMKID M1 otomatis ke /tmp/veritas_pmkid_*.22000
   --ids-bypass    Mengaktifkan manipulasi jeda waktu (jitter timing) untuk meminimalkan deteksi WIDS/WIPS
-  --dual <iface>  Mengaktifkan mode dual-radio menggunakan adaptor nirkabel sekunder
+  --dual <iface>  Mengaktifkan mode dual-radio menggunakan adaptor nirkabel sekunder (Killer)
   --rogue         Menjalankan Rogue AP otomatis pada saluran pengalihan target
   --stats <file>  Menulis data statistik JSON secara langsung ke berkas tujuan
   --help          Menampilkan panduan penggunaan dan penjelasan parameter
@@ -134,7 +135,8 @@ sudo ./veritas --stress --5ghz --dual wlan1
 # Memisahkan tugas pemindaian dan penembakan mutlak antar dua interface.
 # wlan0 akan berfungsi 100% mendengarkan (Scanner) di semua pita,
 # sementara wlan1 berfungsi 100% menembak (Injector) secara membabi buta tanpa jeda.
-sudo ./veritas --stress --5ghz --dual wlan1 --split-role
+# Dengan menambahkan flag `-i wlan0` dan `--dual wlan1`, menu interaktif akan dilompati.
+sudo ./veritas --stress --split-role -i wlan0mon --dual wlan1mon
 
 # [FITUR ANTI-MAC RANDOMIZATION] Dynamic SSID Tracking (Wildcard Support)
 # Fokus menembakkan vektor stress hanya ke jaringan yang namanya mengandung kata tertentu,
