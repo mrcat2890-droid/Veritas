@@ -3550,7 +3550,7 @@ typedef struct {
 } stress_pool_t;
 
 
-static _Atomic int g_stress_ch = 0;
+static _Atomic int g_stress_ch[2] = {0, 0};
 static _Atomic int g_stress_aps_seen = 0;
 
 static void stress_pool_init(stress_pool_t *p) {
@@ -3691,6 +3691,7 @@ typedef struct {
   char iface[MAX_IFACE];
   stress_pool_t *pool;
   bool unmask_hidden;
+  int radio_idx;
 } stress_scan_arg_t;
 
 static void *stress_scanner_thread(void *arg) {
@@ -3887,7 +3888,7 @@ static void *stress_scanner_thread(void *arg) {
       }
       int8_t rssi = parse_radiotap_rssi(buf, rt_len);
       if (channel <= 0) {
-        channel = atomic_load(&g_stress_ch);
+        channel = atomic_load(&g_stress_ch[a->radio_idx]);
       }
       if (channel > 0) {
         stress_pool_add(a->pool, bssid, ssid, channel, rssi, enc);
@@ -3966,6 +3967,7 @@ typedef struct {
   int chlist[N_CH_24 + N_CH_5];
   int nch;
   int dwell_ms;
+  int radio_idx;
 } stress_hop_arg_t;
 
 static void *stress_hopper_thread(void *arg) {
@@ -3980,9 +3982,7 @@ static void *stress_hopper_thread(void *arg) {
   while (!g_stop) {
     int ch = a->chlist[idx % a->nch];
     set_ch(a->iface, ch);
-    atomic_store(&g_stress_ch,
-                 ch); /* Note: in dual radio this will bounce between the two,
-                         which is fine for display */
+    atomic_store(&g_stress_ch[a->radio_idx], ch);
     idx++;
 
     double dwell = (double)a->dwell_ms / 1000.0;
@@ -4016,6 +4016,7 @@ typedef struct {
   stress_pool_t *pool;
   int band; 
   char iface[MAX_IFACE];
+  int radio_idx;
 } stress_inj_arg_t;
 
 static void *stress_injector_thread(void *arg) {
@@ -4088,7 +4089,7 @@ static void *stress_injector_thread(void *arg) {
     }
 
     
-    int cur_ch = atomic_load(&g_stress_ch);
+    int cur_ch = atomic_load(&g_stress_ch[a->radio_idx]);
 
     
     for (int i = 0; i < nap && !g_stop; i++) {
@@ -4566,7 +4567,8 @@ static void *stress_display_thread(void *arg) {
     double pps = elapsed > 0.05 ? (double)sent / elapsed : 0;
 
     int naps = atomic_load(&g_stress_aps_seen);
-    int cur_ch = atomic_load(&g_stress_ch);
+    int cur_ch1 = atomic_load(&g_stress_ch[0]);
+    int cur_ch2 = atomic_load(&g_stress_ch[1]);
 
     int tw, th;
     get_term_size(&tw, &th);
@@ -4587,10 +4589,16 @@ static void *stress_display_thread(void *arg) {
     printf("  ║ " C_GRAY "IF  " RST C_CYAN "%-20s" RST "  " C_GRAY
            "MODE " RST C_RED "%-18s" RST "║\033[K\n",
            d->cfg->iface, MODE_NAMES[d->cfg->mode]);
+    char ch_str[16];
+    if (d->cfg->dual_radio && d->cfg->iface2[0]) {
+        snprintf(ch_str, sizeof(ch_str), "%d|%d", cur_ch1, cur_ch2);
+    } else {
+        snprintf(ch_str, sizeof(ch_str), "%d", cur_ch1);
+    }
     printf("  ║ " C_GRAY "APs " RST C_AQUA "%-4d" RST " discovered"
-           "        " C_GRAY "CH " RST C_YELLOW "%3d" RST " / " C_ICE "%d" RST
-           "          ║\033[K\n",
-           naps, cur_ch, d->cfg->scan_5ghz ? N_CH_24 + N_CH_5 : N_CH_24);
+           "        " C_GRAY "CH " RST C_YELLOW "%-7s" RST " / " C_ICE "%-2d" RST
+           "      ║\033[K\n",
+           naps, ch_str, d->cfg->scan_5ghz ? N_CH_24 + N_CH_5 : N_CH_24);
 
     char pps_str[32];
     if (pps >= 1000)
@@ -4663,8 +4671,9 @@ static void *stress_display_thread(void *arg) {
         snprintf(tx_str, sizeof(tx_str), "%lu", (unsigned long)atx);
 
       const char *enc_str = snap[i].encryption[0] ? snap[i].encryption : "OPN";
+      bool is_cur = (snap[i].channel == cur_ch1 || (d->cfg->dual_radio && snap[i].channel == cur_ch2));
       printf("  ║ %s%3d" RST "  %-18s %-16s %-8s %-7s %-5s ║\033[K\n",
-             snap[i].channel == cur_ch ? C_GREEN : C_GRAY, snap[i].channel,
+             is_cur ? C_GREEN : C_GRAY, snap[i].channel,
              snap[i].bssid_str, ssid_disp, rssi_str, enc_str, tx_str);
     }
     if (nsnap > show)
@@ -4842,6 +4851,7 @@ static void run_stress(stress_cfg_t *cfg) {
   snprintf(sa1->iface, MAX_IFACE, "%s", cfg->iface);
   sa1->pool = &pool;
   sa1->unmask_hidden = cfg->unmask_hidden;
+  sa1->radio_idx = 0;
   if (pthread_create(&scan_t[n_scan], NULL, stress_scanner_thread, sa1) == 0)
     n_scan++;
   else
@@ -4852,6 +4862,7 @@ static void run_stress(stress_cfg_t *cfg) {
     snprintf(sa2->iface, MAX_IFACE, "%s", cfg->iface2);
     sa2->pool = &pool;
     sa2->unmask_hidden = cfg->unmask_hidden;
+    sa2->radio_idx = 1;
     if (pthread_create(&scan_t[n_scan], NULL, stress_scanner_thread, sa2) == 0)
       n_scan++;
     else
@@ -4866,6 +4877,7 @@ static void run_stress(stress_cfg_t *cfg) {
   snprintf(ha1->iface, MAX_IFACE, "%s", cfg->iface);
   ha1->dwell_ms = dwell_ms;
   ha1->nch = 0;
+  ha1->radio_idx = 0;
 
   
   
@@ -4895,6 +4907,7 @@ static void run_stress(stress_cfg_t *cfg) {
       snprintf(ha2->iface, MAX_IFACE, "%s", cfg->iface2);
       ha2->dwell_ms = dwell_ms;
       ha2->nch = 0;
+      ha2->radio_idx = 1;
       for (int i = 0; i < N_CH_24; i++) ha2->chlist[ha2->nch++] = CH_24[i];
       if (cfg->scan_5ghz) {
           for (int i = 0; i < N_CH_5; i++) ha2->chlist[ha2->nch++] = CH_5[i];
@@ -4909,6 +4922,7 @@ static void run_stress(stress_cfg_t *cfg) {
       snprintf(ha2->iface, MAX_IFACE, "%s", cfg->iface2);
       ha2->dwell_ms = dwell_ms;
       ha2->nch = 0;
+      ha2->radio_idx = 1;
       for (int i = 0; i < N_CH_5; i++)
         ha2->chlist[ha2->nch++] = CH_5[i];
 
@@ -4941,6 +4955,7 @@ static void run_stress(stress_cfg_t *cfg) {
       ia->pool = &pool;
       ia->band = 0; 
       snprintf(ia->iface, MAX_IFACE, "%s", cfg->iface2);
+      ia->radio_idx = 1;
       if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia) == 0)
         n_inj++;
       else
@@ -4952,6 +4967,7 @@ static void run_stress(stress_cfg_t *cfg) {
       ia->pool = &pool;
       ia->band = 0;
       snprintf(ia->iface, MAX_IFACE, "%s", cfg->iface);
+      ia->radio_idx = 0;
       if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia) == 0)
         n_inj++;
       else
@@ -4964,6 +4980,7 @@ static void run_stress(stress_cfg_t *cfg) {
     ia1->pool = &pool;
     ia1->band = 2;
     snprintf(ia1->iface, MAX_IFACE, "%s", cfg->iface);
+    ia1->radio_idx = 0;
     if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia1) == 0)
       n_inj++;
     else
@@ -4977,8 +4994,10 @@ static void run_stress(stress_cfg_t *cfg) {
       ia2->band = 5;
       if (cfg->dual_radio && cfg->iface2[0]) {
         snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface2);
+        ia2->radio_idx = 1;
       } else {
         snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface);
+        ia2->radio_idx = 0;
       }
       if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia2) == 0)
         n_inj++;
