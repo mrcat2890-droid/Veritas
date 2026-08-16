@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.7.5] - 2026-08-16
+
+### Fixed — Buffer Bloat in Long-Running Injections
+
+- **[FIX] PID Auto-Tuner (Rate Controller) Relocation**:
+  - Memindahkan evaluasi PID Auto-Tuner ke *dalam* perulangan (loop) *Access Point*. Sebelumnya, evaluasi dilakukan per siklus *channel*, yang menyebabkan *buffer bloat* kernel besar-besaran (ribuan paket sekaligus) pada vektor serangan massif seperti *Operating Channel Aggression* dan CSA. Hal ini kerap memicu *firmware crash* (terutama pada adapter USB lama seperti TP-Link WN722N v1/AR9271) dan membuat adapter tiba-tiba mati / *drop*.
+  - Menambahkan *Dynamic Inter-AP Sleep* (jeda waktu mikro yang adaptif antar-AP) maksimal 20ms untuk memberikan waktu "napas" bagi *ring buffer* kernel.
+  - Mempercepat waktu pemulihan (*Fast Recovery*) dari *sleep limiter* agar laju injeksi bisa langsung kembali kencang (tancap gas) setelah kemacetan jalur mereda. Mode `--stress` dan `--split-role` kini jauh lebih stabil untuk penggunaan jangka panjang (*long-running*).
+
+---
+
 ## [4.7.4] - 2026-08-15
 
 ### Upgraded — Tactical Vector Enhancement
