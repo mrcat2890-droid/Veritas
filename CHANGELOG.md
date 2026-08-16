@@ -65,8 +65,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Ketiga vektor CSA utama (`CSA Beacon`, `CSA Action Frame`, `Probe Response CSA`) telah ditingkatkan dari CSA standar (IE 37) menjadi serangan bertumpuk yang menyertakan **Extended CSA (IE 60)**.
   - Ini mengeksploitasi klien modern 5GHz/WiFi-6 (Android/iOS terbaru) yang mem-filter CSA lama jika tidak ada *Operating Class*.
   - **Quiet Element (IE 40)** kini disusupkan di **ketiga** vektor CSA (bukan hanya Action Frame), memaksa radio klien melakukan *TX Pause* / *Radio Silence* bersamaan dengan perintah pindah kanal.
-- **[FIX] DS Parameter Set (Vector #1 & #10)**:
-  - DS Parameter Set IE (ID=3) pada `CSA Beacon` dan `Probe Response CSA` sebelumnya salah menunjuk ke `new_ch` (kanal tujuan). Menurut standar IEEE 802.11, DS Parameter harus menunjukkan **kanal operasi saat ini** (`cur_ch`). Klien cerdas bisa membuang beacon yang tidak konsisten. Diperbaiki agar sesuai standar.
+- **[UPGRADE] WPA3 Cryptographic Exhaustion / SAE Commit Flood (Vector #4: Auth DoS)**:
+  - Vektor *Authentication Flood* telah dirombak total khusus untuk membunuh perangkat *Hotspot* modern (iOS 16+ / Android 13+) yang menggunakan WPA3.
+  - Veritas tidak lagi mengirimkan *Open System Authentication* yang mudah diabaikan. Kini, Veritas membombardir *hotspot* target dengan ribuan paket **SAE Commit (Simultaneous Authentication of Equals)** palsu yang memuat muatan *Elliptic Curve Cryptography* (ECC) semu (Grup 19, 256-bit).
+  - Ini adalah serangan *Cryptographic Denial of Service*. Karena *router/hotspot* diwajibkan oleh protokol WPA3 untuk menghitung persamaan matematika berat pada setiap *SAE Commit* yang masuk, CPU *hotspot* akan langsung melonjak 100%, menyebabkan baterai terkuras drastis dan *overheat* (*Thermal Throttling*) hingga OS target membeku.
+- **[UPGRADE] WPA3 Temporal Key Desync / M1 Spoofing (Vector #5: EAPOL Logoff)**:
+  - Vektor EAPOL tidak lagi mengirimkan paket *Logoff* standar yang ditolak mentah-mentah oleh *Protected Management Frames* (PMF) pada WPA3.
+  - Veritas kini menginjeksi jebakan **EAPOL-Key Message 1 (M1)** palsu yang dilengkapi dengan *ANonce* (nomor acak kriptografi) buatan secara brutal tepat di tengah-tengah sesi klien target.
+  - Ketika klien atau *router* menerima M1 palsu ini, *state-machine* enkripsi mereka menjadi kacau balau karena mengira terjadi proses *Re-Keying* (penggantian kunci). Mereka secara otomatis akan membuang kunci sementara (*Temporal Key*) yang lama, memutus total sinkronisasi enkripsi. Semua paket data asli yang lewat setelahnya akan ditolak (didrop), menciptakan serangan *micro-disconnect* tak kasat mata yang tidak bisa dihentikan oleh PMF.
 - **[UPGRADE] Firmware Watchdog Evasion (Intel 8265/9260 dkk)**:
   - Chipset Wi-Fi sensitif seperti Intel Corporation Wireless 8265 / 8275 (rev 78) sering terlempar dari *monitor mode* jika dipaksa menembak dengan intensitas *Insane* (buffer *DMA* penuh → *firmware panic reset*).
   - *PID Auto-Tuner* sekarang dilengkapi mekanisme pengereman darurat (*Hard Braking*). Jika *fail rate* mendadak melonjak melampaui 30%, injektor akan melakukan *Hardware Cooldown* instan (jeda mutlak 100 milidetik) dan memperlambat *base sleep* secara agresif. Ini mencegah cip Intel mengalami *overload* tanpa mengorbankan rata-rata tembakan PPS secara keseluruhan.
