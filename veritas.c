@@ -4275,6 +4275,8 @@ static void *stress_injector_thread(void *arg) {
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
+          } else {
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
 
           
@@ -4283,6 +4285,8 @@ static void *stress_injector_thread(void *arg) {
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
+          } else {
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
           /* 3. [UPGRADE] Phantom Roaming Trap (Spoofed BSSID)
            * Creates a fake AP with the same SSID but different MAC.
@@ -4294,6 +4298,8 @@ static void *stress_injector_thread(void *arg) {
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
+          } else {
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
         }
       }
@@ -4333,6 +4339,8 @@ static void *stress_injector_thread(void *arg) {
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
+          } else {
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
 
           
@@ -4340,6 +4348,8 @@ static void *stress_injector_thread(void *arg) {
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
+          } else {
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
         }
       }
@@ -4370,6 +4380,8 @@ static void *stress_injector_thread(void *arg) {
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
+          } else {
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
 
           
@@ -4379,6 +4391,8 @@ static void *stress_injector_thread(void *arg) {
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
+          } else {
+            { atomic_fetch_add(&g_pkts_fail, 1); local_fail++; }
           }
         }
       }
@@ -4502,43 +4516,38 @@ static void *stress_injector_thread(void *arg) {
         }
       }
 
-      /* [UPGRADE] Vector Batching: Inter-AP delay removed to maximize DMA ring buffer utilization */
-    }
+      /* Rate Controller moved INSIDE the AP loop to prevent massive bursts
+       * that overflow the kernel ring buffer and crash the firmware */
+      uint64_t curr_sent = local_sent;
+      uint64_t curr_fail = local_fail;
 
-    /* [FIX 47] PID Auto-Tuner for Buffer Bloat (Rate Controller) — per-thread
-     * local state */
-    uint64_t curr_sent = local_sent;
-    uint64_t curr_fail = local_fail;
+      uint64_t d_sent = curr_sent - pid_last_sent;
+      uint64_t d_fail = curr_fail - pid_last_fail;
 
-    uint64_t d_sent = curr_sent - pid_last_sent;
-    uint64_t d_fail = curr_fail - pid_last_fail;
-    pid_last_sent = curr_sent;
-    pid_last_fail = curr_fail;
+      if (d_sent + d_fail > 50) { 
+        pid_last_sent = curr_sent;
+        pid_last_fail = curr_fail;
 
-    if (d_sent + d_fail > 100) { 
-      double fail_rate = (double)d_fail / (double)(d_sent + d_fail);
-      
-      /* [UPGRADE] Watchdog Evasion (Intel 8265/8275 adaptation) */
-      if (fail_rate > 0.30) {
+        double fail_rate = (double)d_fail / (double)(d_sent + d_fail);
         
-        usleep_precise(0.1); 
-        base_sleep *= 2.0;   
-        if (base_sleep > 0.1) base_sleep = 0.1;
-      } else if (fail_rate > 0.05) {
-        
-        base_sleep += 0.0005;
-        if (base_sleep > 0.1)
-          base_sleep = 0.1; 
-      } else if (fail_rate == 0.0) {
-        
-        base_sleep *= 0.95;
-        if (base_sleep < 0.00001)
-          base_sleep = 0.00001; 
+        if (fail_rate > 0.15) {
+          usleep_precise(0.01); /* 10ms pause to drain */
+          base_sleep *= 1.5;   
+          if (base_sleep > 0.02) base_sleep = 0.02; /* 20ms max per AP */
+        } else if (fail_rate > 0.02) {
+          base_sleep += 0.0001;
+          if (base_sleep > 0.02) base_sleep = 0.02; 
+        } else {
+          base_sleep *= 0.5; /* Fast recovery */
+          if (base_sleep < 0.00001) base_sleep = 0.00001; 
+        }
       }
+
+      usleep_precise(base_sleep); /* Apply inter-AP dynamic sleep */
     }
 
-    
-    usleep_precise(base_sleep * 2);
+    /* Yield minimally at end of channel cycle */
+    usleep_precise(0.001);
   }
 
   close(sock);
