@@ -180,6 +180,27 @@ sudo ./veritas --script config.example.json
 }
 ```
 
+```
+
+---
+
+### 4. 💡 Praktik Terbaik & Kombinasi Flag (Pantangan & Rekomendasi)
+
+Mengingat VERITAS memiliki banyak parameter penyesuaian, berikut adalah kombinasi mematikan dan pantangan yang wajib Anda ketahui agar tidak terjadi miskonfigurasi:
+
+#### ✅ Kombinasi Super (Direkomendasikan)
+| Skenario | Kombinasi Flag | Keterangan |
+| :--- | :--- | :--- |
+| **Hunter-Killer Sempurna** | `--stress --split-role -i wlan0mon --dual wlan1mon` | `wlan0mon` hanya akan memindai (Scan) dan `wlan1mon` hanya akan menembak (Inject) secara membabi buta. Sempurna untuk *hardware* dengan *bottleneck rx/tx ring*. |
+| **Silent Assassin (WIPS Evasion)** | `--ids-bypass` (Pilih mode `STEALTH` atau `MEDIUM`) | Melakukan variasi jeda (*jitter timing*) dan mengacak MAC Address pengirim untuk menembus sensor deteksi korporat. |
+| **Target Spesifik Berpindah-pindah** | `--stress --target-ssid "NAMA WIFI"` | Menggunakan *wildcard* dan *tracking* dinamis. Mengunci target berdasarkan nama SSID meskipun BSSID (MAC Address router target) sering berubah. |
+
+#### ❌ Pantangan & Kesalahpahaman Umum
+*   ⚠️ **`--split-role` dan `--target-ssid` di Mode Interaktif Biasa:** Kedua flag ini **HANYA BERLAKU** jika Anda menjalankan mode Uji Stress (`--stress`). Jika dipasangkan tanpa `--stress`, flag ini akan diabaikan.
+*   ⚠️ **Makna `--5ghz`:** Mengaktifkan flag ini **bukan berarti** *tool* hanya akan berjalan di pita 5GHz. Ini berarti *tool* akan **menambahkan** pita 5GHz bersama pita bawaan 2.4GHz. Pastikan *interface* Anda mendukung 5GHz (seperti RTL8812AU), jika tidak, *thread hopper* akan membuang waktu mencoba mengubah kanal yang tidak didukung.
+*   ⚠️ **`--ids-bypass` + Mode `INSANE` (5000 PPS):** Flag `--ids-bypass` dirancang untuk mengelabui WIPS dengan **melambatkan** dan memberikan jeda waktu (jitter) yang tidak tertebak. Jika Anda memilih kecepatan ekstrem (`INSANE`), maka batas kecepatan tersebut akan ditekan kembali oleh *jitter delay* dari `--ids-bypass`. Gunakan kecepatan konstan tanpa `--ids-bypass` jika Anda benar-benar ingin menenggelamkan spektrum udara.
+*   ⚠️ **Lupa Menentukan `-i` di Mode `--split-role`:** Jika Anda menyalakan `--dual` dan `--split-role` namun lupa memasang `-i wlan0mon`, *tool* akan terjeda di menu interaktif untuk menanyakan mana *interface* yang bertindak sebagai *Hunter*.
+
 ---
 
 ### 4. Versi Python (`veritas.py`)
