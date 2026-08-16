@@ -178,6 +178,8 @@ sudo ./veritas --script config.example.json
   "rogue_ssid": "Wi-Fi_Perusahaan_5G",
   "stats_file": "/tmp/veritas_stats.json"
 }
+```
+
 ---
 
 ### 4. 💡 Praktik Terbaik & Kombinasi Flag (Pantangan & Rekomendasi)
