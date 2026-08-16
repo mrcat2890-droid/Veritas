@@ -229,6 +229,7 @@ typedef struct {
   bool log_pmkid;
   bool spawn_rogue;
   bool unmask_hidden;
+  bool split_role; /* [FEATURE] Hunter-Killer split role */
   #define MAX_TRACK_SSIDS 8
   char target_ssid_track[MAX_TRACK_SSIDS][MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking */
   int target_ssid_track_cnt;
@@ -250,6 +251,7 @@ typedef struct {
   char export_file[MAX_PATH_LEN];
   char target_ssid_track[MAX_TRACK_SSIDS][MAX_SSID_LEN + 1]; /* [FEATURE] SSID Tracking for stress */
   int target_ssid_track_cnt;
+  bool split_role; /* [FEATURE] Hunter-Killer split role */
 } stress_cfg_t;
 
 static void run_stress(stress_cfg_t *cfg);
@@ -3619,6 +3621,10 @@ static void print_help(void) {
   printf("  --5ghz          Include 5GHz channels in stress scan/injection\n");
   printf("  --unmask-hidden Actively sweep Probe Requests to unmask hidden "
          "SSIDs\n");
+  printf("  --split-role    Hunter-Killer architecture for dual radio "
+         "(iface=Scanner, iface2=Injector)\n");
+  printf("  --target-ssid   Filter stress injection to specific SSID(s) (supports "
+         "wildcard '*'). Comma-separated.\n");
   printf("  --export <file> Export audit report (JSON/CSV) at session "
          "completion\n\n");
   printf("Script JSON keys:\n");
@@ -3629,7 +3635,7 @@ static void print_help(void) {
   printf("  log_pmkid, ids_bypass, dual_radio, iface2, spawn_rogue, "
          "rogue_ssid,\n");
   printf("  stress_mode (bool), scan_5ghz (bool), unmask_hidden (bool), "
-         "export_file (string)\n\n");
+         "split_role (bool), export_file (string)\n\n");
 }
 
 /* ============================================================
@@ -4980,7 +4986,7 @@ static void run_stress(stress_cfg_t *cfg) {
   else
     free(sa1);
 
-  if (cfg->dual_radio && cfg->iface2[0]) {
+  if (!cfg->split_role && cfg->dual_radio && cfg->iface2[0]) {
     stress_scan_arg_t *sa2 = calloc(1, sizeof(*sa2));
     snprintf(sa2->iface, MAX_IFACE, "%s", cfg->iface2);
     sa2->pool = &pool;
@@ -5001,13 +5007,19 @@ static void run_stress(stress_cfg_t *cfg) {
   ha1->nch = 0;
 
   /* If single radio and scanning 5GHz, put all channels in ha1 */
-  /* If dual radio, ha1 gets 2.4GHz, ha2 gets 5GHz */
-  for (int i = 0; i < N_CH_24; i++)
-    ha1->chlist[ha1->nch++] = CH_24[i];
-
-  if (!cfg->dual_radio && cfg->scan_5ghz) {
-    for (int i = 0; i < N_CH_5; i++)
-      ha1->chlist[ha1->nch++] = CH_5[i];
+  /* If dual radio (normal), ha1 gets 2.4GHz, ha2 gets 5GHz */
+  /* If split-role, ha1 (scanner) gets ALL requested channels */
+  if (cfg->split_role) {
+      for (int i = 0; i < N_CH_24; i++) ha1->chlist[ha1->nch++] = CH_24[i];
+      if (cfg->scan_5ghz) {
+          for (int i = 0; i < N_CH_5; i++) ha1->chlist[ha1->nch++] = CH_5[i];
+      }
+  } else {
+      for (int i = 0; i < N_CH_24; i++) ha1->chlist[ha1->nch++] = CH_24[i];
+      if (!cfg->dual_radio && cfg->scan_5ghz) {
+        for (int i = 0; i < N_CH_5; i++)
+          ha1->chlist[ha1->nch++] = CH_5[i];
+      }
   }
 
   if (pthread_create(&hop_t[n_hop], NULL, stress_hopper_thread, ha1) == 0)
@@ -5015,18 +5027,35 @@ static void run_stress(stress_cfg_t *cfg) {
   else
     free(ha1);
 
-  if (cfg->dual_radio && cfg->iface2[0] && cfg->scan_5ghz) {
-    stress_hop_arg_t *ha2 = calloc(1, sizeof(*ha2));
-    snprintf(ha2->iface, MAX_IFACE, "%s", cfg->iface2);
-    ha2->dwell_ms = dwell_ms;
-    ha2->nch = 0;
-    for (int i = 0; i < N_CH_5; i++)
-      ha2->chlist[ha2->nch++] = CH_5[i];
+  if (cfg->dual_radio && cfg->iface2[0]) {
+    if (cfg->split_role) {
+      /* Injector role gets its own hopper with all requested channels */
+      stress_hop_arg_t *ha2 = calloc(1, sizeof(*ha2));
+      snprintf(ha2->iface, MAX_IFACE, "%s", cfg->iface2);
+      ha2->dwell_ms = dwell_ms;
+      ha2->nch = 0;
+      for (int i = 0; i < N_CH_24; i++) ha2->chlist[ha2->nch++] = CH_24[i];
+      if (cfg->scan_5ghz) {
+          for (int i = 0; i < N_CH_5; i++) ha2->chlist[ha2->nch++] = CH_5[i];
+      }
+      if (pthread_create(&hop_t[n_hop], NULL, stress_hopper_thread, ha2) == 0)
+        n_hop++;
+      else
+        free(ha2);
+    } else if (cfg->scan_5ghz) {
+      /* Normal dual radio: ha2 gets 5GHz */
+      stress_hop_arg_t *ha2 = calloc(1, sizeof(*ha2));
+      snprintf(ha2->iface, MAX_IFACE, "%s", cfg->iface2);
+      ha2->dwell_ms = dwell_ms;
+      ha2->nch = 0;
+      for (int i = 0; i < N_CH_5; i++)
+        ha2->chlist[ha2->nch++] = CH_5[i];
 
-    if (pthread_create(&hop_t[n_hop], NULL, stress_hopper_thread, ha2) == 0)
-      n_hop++;
-    else
-      free(ha2);
+      if (pthread_create(&hop_t[n_hop], NULL, stress_hopper_thread, ha2) == 0)
+        n_hop++;
+      else
+        free(ha2);
+    }
   }
 
   /* Wait for initial AP discovery (2 seconds scan before injection) */
@@ -5042,32 +5071,59 @@ static void run_stress(stress_cfg_t *cfg) {
   pthread_t inj_t[2];
   int n_inj = 0;
 
-  /* Injector 1: 2.4GHz Dedicated */
-  stress_inj_arg_t *ia1 = calloc(1, sizeof(*ia1));
-  ia1->cfg = cfg;
-  ia1->pool = &pool;
-  ia1->band = 2;
-  snprintf(ia1->iface, MAX_IFACE, "%s", cfg->iface);
-  if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia1) == 0)
-    n_inj++;
-  else
-    free(ia1);
-
-  /* Injector 2: 5GHz Dedicated (only if scanning 5GHz) */
-  if (cfg->scan_5ghz) {
-    stress_inj_arg_t *ia2 = calloc(1, sizeof(*ia2));
-    ia2->cfg = cfg;
-    ia2->pool = &pool;
-    ia2->band = 5;
+  if (cfg->split_role) {
+    /* [UPGRADE] Hunter-Killer Split Role: All injection happens only on iface2.
+     * Band is 0 (all bands), bypassing sharding so it can shoot anything found by the scanner. */
     if (cfg->dual_radio && cfg->iface2[0]) {
-      snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface2);
+      stress_inj_arg_t *ia = calloc(1, sizeof(*ia));
+      ia->cfg = cfg;
+      ia->pool = &pool;
+      ia->band = 0; /* Shoot anything */
+      snprintf(ia->iface, MAX_IFACE, "%s", cfg->iface2);
+      if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia) == 0)
+        n_inj++;
+      else
+        free(ia);
     } else {
-      snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface);
+      /* Fallback if user forgot --dual */
+      stress_inj_arg_t *ia = calloc(1, sizeof(*ia));
+      ia->cfg = cfg;
+      ia->pool = &pool;
+      ia->band = 0;
+      snprintf(ia->iface, MAX_IFACE, "%s", cfg->iface);
+      if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia) == 0)
+        n_inj++;
+      else
+        free(ia);
     }
-    if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia2) == 0)
+  } else {
+    /* Injector 1: 2.4GHz Dedicated */
+    stress_inj_arg_t *ia1 = calloc(1, sizeof(*ia1));
+    ia1->cfg = cfg;
+    ia1->pool = &pool;
+    ia1->band = 2;
+    snprintf(ia1->iface, MAX_IFACE, "%s", cfg->iface);
+    if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia1) == 0)
       n_inj++;
     else
-      free(ia2);
+      free(ia1);
+
+    /* Injector 2: 5GHz Dedicated (only if scanning 5GHz) */
+    if (cfg->scan_5ghz) {
+      stress_inj_arg_t *ia2 = calloc(1, sizeof(*ia2));
+      ia2->cfg = cfg;
+      ia2->pool = &pool;
+      ia2->band = 5;
+      if (cfg->dual_radio && cfg->iface2[0]) {
+        snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface2);
+      } else {
+        snprintf(ia2->iface, MAX_IFACE, "%s", cfg->iface);
+      }
+      if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia2) == 0)
+        n_inj++;
+      else
+        free(ia2);
+    }
   }
 
   /* Start display thread */
@@ -5181,6 +5237,7 @@ int main(int argc, char **argv) {
   bool stress_mode = false;
   bool stress_5ghz = false;
   bool unmask_hidden = false;
+  bool split_role = false;
   bool global_dual_radio = false;
   char global_iface2[MAX_IFACE] = {0};
   char export_file[MAX_PATH_LEN] = "";
@@ -5198,6 +5255,8 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--export") == 0 && i + 1 < argc)
       snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
+    if (strcmp(argv[i], "--split-role") == 0)
+      split_role = true;
     if ((strcmp(argv[i], "--target-ssid") == 0 || strcmp(argv[i], "--ssid") == 0) && i + 1 < argc)
       snprintf(global_target_ssid_str, sizeof(global_target_ssid_str), "%s", argv[++i]);
   }
@@ -5209,6 +5268,7 @@ int main(int argc, char **argv) {
     scfg.scan_5ghz = stress_5ghz;
     scfg.unmask_hidden = unmask_hidden;
     scfg.dual_radio = global_dual_radio;
+    scfg.split_role = split_role;
     
     if (global_target_ssid_str[0]) {
       char *token = strtok(global_target_ssid_str, ",");
@@ -5288,6 +5348,8 @@ int main(int argc, char **argv) {
       cli_stats = argv[++i];
     } else if (strcmp(argv[i], "--export") == 0 && i + 1 < argc) {
       snprintf(export_file, MAX_PATH_LEN, "%s", argv[++i]);
+    } else if (strcmp(argv[i], "--split-role") == 0) {
+      cfg.split_role = true;
     }
   }
 

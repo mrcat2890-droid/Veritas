@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Pembatasan kecepatan perangkat lunak (*software throttling/micro-sleeps*) di dalam inti iterasi *injector thread* telah dihapus sepenuhnya.
   - Veritas kini menembakkan seluruh muatan 20 vektor secara simultan untuk **seluruh** *Access Point* yang ditargetkan dalam satu siklus mutlak tanpa jeda (*uninterrupted burst*). Kecepatan maksimum *Packets Per Second* (PPS) kini sepenuhnya *Hardware-Bound* (bergantung seberapa cepat bus USB dan buffer DMA adapter Wi-Fi Anda bisa memompa paket ke udara), dengan modul *PID Auto-Tuner* yang mengelola secara dinamis jika perangkat keras mulai kelebihan muatan.
 
+- **[UPGRADE] Split-Role Architecture (Hunter-Killer Dual Radio)**:
+  - Tersedia *flag* eksekusi baru `--split-role` untuk dipasangkan dengan mode `--dual`. Ini merombak arsitektur penguraian beban paralel ganda (Symmetric Parallel) menjadi pola *Hunter-Killer*.
+  - **Hunter (Interface 1)** didedikasikan mutlak untuk *scanning*. Ia menyisir semua gelombang mencari target secara senyap, membangun pangkalan data sasaran tanpa pernah menembak.
+  - **Killer (Interface 2)** didedikasikan mutlak untuk *injection*. Ia tidak membuang waktu memindai ruang kosong, melainkan menerima data target dari Hunter, melompat, dan menembak secara brutal. Ini meledakkan batas PPS menjadi jauh lebih tinggi karena Killer tidak pernah terjeda oleh fase pencarian.
+  - **Cross-Band Bypassing**: Killer tidak lagi peduli apakah ia berada di 2.4GHz atau 5GHz. Jika Hunter memberikannya target 5GHz, sistem perangkat lunak Veritas akan memaksa (bypass filter) Killer untuk melompat dan menembak ke kanal tersebut (meski batas aktualnya bergantung pada toleransi fisik *hardware* adapter eksternal Anda).
+
 - **[UPGRADE] Dynamic Wildcard Matching (`--target-ssid`)**:
   - Mesin pelacakan SSID kini tidak lagi dibatasi oleh pencocokan string eksak (*exact string matching*). Veritas sekarang mendukung penggunaan karakter *Wildcard* (`*`) di dalam flag target.
   - Contoh: `--target-ssid "*Guest*"` akan secara otonom melacak, mengelompokkan, dan menyerang jaringan Wi-Fi mana pun di sekitar yang namanya mengandung kata "Guest". Ini memungkinkan seorang operator untuk melumpuhkan satu area kampus raksasa atau blok perkantoran hanya dengan satu sintaks perintah.

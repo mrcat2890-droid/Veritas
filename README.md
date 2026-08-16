@@ -130,10 +130,16 @@ sudo ./veritas --stress --5ghz
 # wlan0 akan dikhususkan untuk 2.4GHz, wlan1 untuk 5GHz
 sudo ./veritas --stress --5ghz --dual wlan1
 
-# [FITUR ANTI-MAC RANDOMIZATION] Dynamic SSID Tracking
-# Fokus menembakkan vektor stress hanya ke jaringan bernama "Target WiFi",
+# [ARSITEKTUR BARU] Hunter-Killer Split Role
+# Memisahkan tugas pemindaian dan penembakan mutlak antar dua interface.
+# wlan0 akan berfungsi 100% mendengarkan (Scanner) di semua pita,
+# sementara wlan1 berfungsi 100% menembak (Injector) secara membabi buta tanpa jeda.
+sudo ./veritas --stress --5ghz --dual wlan1 --split-role
+
+# [FITUR ANTI-MAC RANDOMIZATION] Dynamic SSID Tracking (Wildcard Support)
+# Fokus menembakkan vektor stress hanya ke jaringan yang namanya mengandung kata tertentu,
 # meskipun router target tersebut terus merubah MAC Address-nya.
-sudo ./veritas --stress --ssid "Target WiFi"
+sudo ./veritas --stress --target-ssid "*Target WiFi*"
 ```
 
 ---
