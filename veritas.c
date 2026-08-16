@@ -4628,8 +4628,7 @@ static void *stress_injector_thread(void *arg) {
         }
       }
 
-      /* Small inter-AP delay */
-      usleep_precise(base_sleep);
+      /* [UPGRADE] Vector Batching: Inter-AP delay removed to maximize DMA ring buffer utilization */
     }
 
     /* [FIX 47] PID Auto-Tuner for Buffer Bloat (Rate Controller) — per-thread

@@ -57,9 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Vektor *Probe Response CSA* kini tidak hanya mengandalkan *spoofing* BSSID AP asli.
   - Veritas akan memancarkan "AP Hantu" (*Phantom AP*)—membuat SSID virtual yang persis sama dengan SSID target, tetapi menggunakan MAC Address acak yang dibuat dinamis, seolah-olah ada sinyal *router* kedua yang jauh lebih kuat.
   - Saat perangkat klien korban mencoba melakukan *Roaming* untuk berpindah ke AP Hantu ini, sang AP Hantu akan segera "menyambutnya" dengan menembakkan paket *Probe Response CSA* jebakan yang memaksa klien masuk ke saluran mematikan (*DFS Blackhole* atau Kanal 14).
-## [4.7.4] - 2026-08-16
+## [4.7.5] - 2026-08-16
 
-### Upgraded — Precision Area Denial
+### Upgraded — Precision Area Denial & Performance
+
+- **[UPGRADE] Vector Batching (Hardware-Bound PPS Limits)**:
+  - Pembatasan kecepatan perangkat lunak (*software throttling/micro-sleeps*) di dalam inti iterasi *injector thread* telah dihapus sepenuhnya.
+  - Veritas kini menembakkan seluruh muatan 20 vektor secara simultan untuk **seluruh** *Access Point* yang ditargetkan dalam satu siklus mutlak tanpa jeda (*uninterrupted burst*). Kecepatan maksimum *Packets Per Second* (PPS) kini sepenuhnya *Hardware-Bound* (bergantung seberapa cepat bus USB dan buffer DMA adapter Wi-Fi Anda bisa memompa paket ke udara), dengan modul *PID Auto-Tuner* yang mengelola secara dinamis jika perangkat keras mulai kelebihan muatan.
 
 - **[UPGRADE] Dynamic Wildcard Matching (`--target-ssid`)**:
   - Mesin pelacakan SSID kini tidak lagi dibatasi oleh pencocokan string eksak (*exact string matching*). Veritas sekarang mendukung penggunaan karakter *Wildcard* (`*`) di dalam flag target.
