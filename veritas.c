@@ -4429,7 +4429,7 @@ static void *stress_injector_thread(void *arg) {
           uint8_t fake_cli[6];
           rand_mac(fake_cli);
           
-          len = mk_dfs_radar_report(tmp, bss, fake_cli, cur, (seq + burst) & 0xFF);
+          len = mk_dfs_radar_report(tmp, bss, fake_cli, cur, (seq++) & 0xFF);
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
