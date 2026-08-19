@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.7.6] - 2026-08-19
+
+### Fixed — Hardware Tx Queue Corruption (Sudden Death)
+
+- **[FIX] Atomic Lock for Channel Hopping**:
+  - Menambahkan sinkronisasi *atomic lock* (`g_ch_lock`) antara *hopper thread* dan *injector thread* pada mode *stress*.
+  - Menghentikan sementara injeksi paket raw ke socket saat *adapter* sedang melakukan pergantian *channel* (channel hopping). Ini mencegah terjadinya *hardware Tx queue corruption* yang sebelumnya menyebabkan WiFi eksternal mati tiba-tiba (*sudden death* / *firmware crash*) ketika digunakan dalam waktu lama pada mode *stress*.
+
+---
+
 ## [4.7.5] - 2026-08-16
 
 ### Fixed — Buffer Bloat in Long-Running Injections

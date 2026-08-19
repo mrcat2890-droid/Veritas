@@ -3551,6 +3551,7 @@ typedef struct {
 
 
 static _Atomic int g_stress_ch[2] = {0, 0};
+static _Atomic int g_ch_lock[2] = {0, 0};
 static _Atomic int g_stress_aps_seen = 0;
 
 static void stress_pool_init(stress_pool_t *p) {
@@ -3981,8 +3982,11 @@ static void *stress_hopper_thread(void *arg) {
   int idx = 0;
   while (!g_stop) {
     int ch = a->chlist[idx % a->nch];
+    atomic_store(&g_ch_lock[a->radio_idx], 1);
     set_ch(a->iface, ch);
     atomic_store(&g_stress_ch[a->radio_idx], ch);
+    usleep_precise(0.005); /* hardware settle time */
+    atomic_store(&g_ch_lock[a->radio_idx], 0);
     idx++;
 
     double dwell = (double)a->dwell_ms / 1000.0;
@@ -4090,11 +4094,18 @@ static void *stress_injector_thread(void *arg) {
       continue;
     }
 
+    while (atomic_load(&g_ch_lock[a->radio_idx]) && !g_stop) {
+      usleep_precise(0.001);
+    }
+
     
     int cur_ch = atomic_load(&g_stress_ch[a->radio_idx]);
 
     
     for (int i = 0; i < nap && !g_stop; i++) {
+      if (atomic_load(&g_ch_lock[a->radio_idx])) {
+        break; /* abort this cycle, channel is changing */
+      }
       if (snap[i].channel != cur_ch)
         continue;
 
